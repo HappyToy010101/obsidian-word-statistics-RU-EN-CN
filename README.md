@@ -17,9 +17,7 @@ Advanced word statistics for Russian, English, and Chinese with lemmatization/se
 
 ## Installation
 
-## Installation Methods
-
-### Method 1: Using BRAT Plugin (Recommended)
+### Method A: via BRAT (recommended)
 
 1. **Install BRAT plugin** in Obsidian:
    - Go to Settings → Community plugins → Browse
@@ -29,30 +27,30 @@ Advanced word statistics for Russian, English, and Chinese with lemmatization/se
 2. **Add this plugin to BRAT**:
    - Open Command Palette (`Ctrl+P` / `Cmd+P`)
    - Run: `BRAT: Add a beta plugin`
-   - Paste this URL:
-     ```
-   https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN
-     ```
-   - Click "Add Plugin"
+   - You can use either of the following:
+     - Repository URL:
+       https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN
+     - Or repository name: `HappyToy010101/obsidian-word-statistics-RU-EN-CN`
+   - Click "Add Plugin" (optionally enable auto‑update in BRAT)
 
 3. **Enable the plugin**:
    - Go to Settings → Community plugins
    - Find "Word Statistics RU EN CN" in disabled plugins list
    - Enable it
 
-### Method 2: Manual Installation
+### Method B: Manual installation
 
-1. **Download the plugin files**:
-   - Go to: `https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN`
-   - Download the entire repository as ZIP
-   - Or clone the repository
+1. **Get the files**:
+    - Option 1 (preferred): Download `manifest.json`, `main.js`, `styles.css` from the latest GitHub Release
+       https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN/releases
+    - Option 2 (build locally): clone the repo and run `npm install` then `npm run build` to generate `main.js`
 
 2. **Extract to your vault**:
    - Navigate to your vault folder: `YourVault/.obsidian/plugins/`
    - Create folder: `word-statistics-ru-en-cn`
-   - Copy these files into the folder:
+   - Ensure the folder contains at least these files:
+     - `manifest.json`
      - `main.js`
-     - `manifest.json` 
      - `styles.css`
 
 3. **Enable the plugin**:
@@ -60,25 +58,19 @@ Advanced word statistics for Russian, English, and Chinese with lemmatization/se
    - Go to Settings → Community plugins
    - Enable "Word Statistics RU EN CN"
 
-### Method 3: Using GitHub with BRAT (Alternative)
+Notes
+- Minimum Obsidian version: 0.15.0
+- BRAT installs will auto‑update if you enable it in BRAT. For manual installs, replace `main.js`, `manifest.json`, and `styles.css` to update.
 
-1. **Install BRAT plugin** (as in Method 1)
-
-2. **Add using GitHub repository**:
-   - In BRAT settings, click "Add Plugin"
-   - Select "Using GitHub repository name"
-   - Enter: `HappyToy010101/obsidian-word-statistics-RU-EN-CN`
-   - Click "Add Plugin"
-
-## File Structure Required
+## File structure in your vault
 
 ```
 YourVault/.obsidian/plugins/
 └── word-statistics-ru-en-cn/
-    ├── main.js
     ├── manifest.json
+   ├── main.js
     ├── styles.css
-   └── (optional) data.json
+   └── (other files are OK but not required)
 ```
 
 ## Usage
@@ -119,18 +111,18 @@ Tips
 
 ## Developer quick start (optional)
 
-The repo includes a TypeScript pipeline; Obsidian still loads CommonJS `main.js`.
+This repo builds a single CommonJS `main.js` bundle via esbuild. Obsidian loads `main.js` at runtime.
 
 ```powershell
 # From the plugin folder
 npm install
-npm run build        # emit JS from TS sources (updates main.js)
-npm run build:watch  # auto‑rebuild on save
-npm run typecheck    # no‑emit type checking
+npm run build        # type‑check, then bundle to main.js (no JS emitted in src)
+npm run build:watch  # auto‑rebuild main.js on save
+npm run typecheck    # TS type checking without emit
 ```
 
 Structure highlights
-- Entry source: `main.ts` (emits `main.js`)
+- Entry source: `main.ts` → bundled `main.js`
 - Modules: `src/constants.ts`, `src/lemmatizer.ts`, `src/chineseSegmenter.ts`, `src/languageManager.ts`, `src/i18n/translations.ts`, `src/data/poem.ts`
 - Types: `types/obsidian-shim.d.ts` for editor IntelliSense
 
