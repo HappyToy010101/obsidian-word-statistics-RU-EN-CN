@@ -1,10 +1,11 @@
 {
-  "id": "word-statistics-RU-EN-CN",
+  "id": "word-statistics-ru-en-cn",
   "name": "Word statistics RU EN CN",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "0.15.0",
   "description": "ALPHA Advanced word statistics with RU, EN, CN support and frequency analysis",
   "author": "HappyToy010101",
   "authorUrl": "https://github.com/HappyToy010101",
+  "main": "main.js",
   "isDesktopOnly": false
 }

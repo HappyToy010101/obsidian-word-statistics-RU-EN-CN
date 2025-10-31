@@ -249,6 +249,7 @@
     border-radius: 8px;
     background: var(--background-secondary);
     position: relative;
+    -webkit-overflow-scrolling: touch; /* smoother scrolling on iOS */
 }
 
 .word-stats-canvas-container {
@@ -282,6 +283,7 @@
     border-radius: 3px;
     background: var(--background-modifier-border);
     outline: none;
+    appearance: none;
     -webkit-appearance: none;
     cursor: pointer;
 }
@@ -342,6 +344,11 @@
 
 .word-stats-zoom-btn:active {
     transform: translateY(0);
+}
+
+.word-stats-zoom-btn:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
 }
 
 /* Кастомный скроллбар для горизонтальной прокрутки */
@@ -475,6 +482,7 @@
     border-radius: 3px;
     background: var(--background-modifier-border);
     outline: none;
+    appearance: none;
     -webkit-appearance: none;
 }
 
@@ -943,6 +951,15 @@
     .word-stats-language-select {
         width: 100% !important;
         max-width: 100% !important;
+    }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
     }
 }
 

@@ -1,19 +1,21 @@
-# Word Statistics RU/EN/CN - Obsidian Plugin
+# Word Statistics RU/EN/CN — Obsidian Plugin
 
-**Alpha version** - Advanced word statistics with multi-language support
+Advanced word statistics for Russian, English, and Chinese with lemmatization/segmentation, interactive charts, and smart filtering.
 
-
-**ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA ALPHA**
+> Alpha status: actively evolving. Expect rapid improvements and occasional changes.
 
 ## Features
 
 - 📊 Word frequency analysis for Russian, English, and Chinese
-- 🧠 Smart lemmatization and word segmentation
-- 📈 Interactive charts and detailed statistics
-- ⚡ Real-time processing with caching
-- 🎯 Customizable word exclusion and filtering
+- 🧠 Lemmatization (RU/EN) and segmentation (ZH)
+- 📈 Interactive chart view and full table view
+- 🎛️ Rich settings: content filtering, exclude common words, custom exclusions
+- ⚡ Caching for faster reloads, batched processing to keep UI responsive
+- 🌐 Fully localized UI (RU/EN/ZH)
+- 🧪 Built‑in strict test with reference poem for quick validation
+- 💾 Export results to CSV/JSON (filtered), plus quick "Export All" from the panel
 
-# Word Statistics RU/EN/CN - Installation Guide
+## Installation
 
 ## Installation Methods
 
@@ -29,7 +31,7 @@
    - Run: `BRAT: Add a beta plugin`
    - Paste this URL:
      ```
-     https://github.com/HappyToy010101/word-statistics-RU-EN-CN
+   https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN
      ```
    - Click "Add Plugin"
 
@@ -41,13 +43,13 @@
 ### Method 2: Manual Installation
 
 1. **Download the plugin files**:
-   - Go to: `https://github.com/HappyToy010101/word-statistics-RU-EN-CN`
+   - Go to: `https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN`
    - Download the entire repository as ZIP
    - Or clone the repository
 
 2. **Extract to your vault**:
    - Navigate to your vault folder: `YourVault/.obsidian/plugins/`
-   - Create folder: `word-statistics-RU-EN-CN`
+   - Create folder: `word-statistics-ru-en-cn`
    - Copy these files into the folder:
      - `main.js`
      - `manifest.json` 
@@ -65,19 +67,32 @@
 2. **Add using GitHub repository**:
    - In BRAT settings, click "Add Plugin"
    - Select "Using GitHub repository name"
-   - Enter: `HappyToy010101/word-statistics-RU-EN-CN`
+   - Enter: `HappyToy010101/obsidian-word-statistics-RU-EN-CN`
    - Click "Add Plugin"
 
 ## File Structure Required
 
 ```
 YourVault/.obsidian/plugins/
-└── word-statistics-RU-EN-CN/
+└── word-statistics-ru-en-cn/
     ├── main.js
     ├── manifest.json
     ├── styles.css
-    └── (optional) data.json
+   └── (optional) data.json
 ```
+
+## Usage
+
+1) Click the 📊 ribbon icon to open the Word Statistics view.
+2) Choose language (🇷🇺/🇺🇸/🇨🇳) and adjust “Exclude top words”.
+3) Click “Refresh Statistics” to analyze your vault.
+4) Switch between table and chart views anytime.
+5) Export results using the CSV/JSON buttons in the header; files open automatically after export and are saved to your vault root.
+
+Tips
+- Add your own words to ignore via the “Add user words to exclude” input.
+- Use content filtering options to ignore Markdown/code/links/math.
+- The “Longest word” and “Last updated” badges summarize the run.
 
 ## Troubleshooting
 
@@ -92,57 +107,49 @@ YourVault/.obsidian/plugins/
 - Try refreshing statistics
 - Verify language setting matches your content
 
-## Alpha Version Notice
+## Settings overview
 
-**Current: Alpha version** - Core functionality implemented
+- Language: RU / EN / ZH
+- Minimum word length: ignore very short tokens
+- Exclude top common words: percentage‑based removal of frequent words
+- Content filtering: ignore Markdown/code/URLs/math/tags
+- Additional excluded words: comma‑separated list
+- Caching: persist stats between sessions
+- Tools: reload dictionaries, create a test file, view expected stats, run strict test
 
-**Next version:** Dictionary updates and bug fixes
+## Developer quick start (optional)
 
-**Report issues:** Please create issues on GitHub repository with:
-- Obsidian version
-- Error messages from console
-- Steps to reproduce the problem
+The repo includes a TypeScript pipeline; Obsidian still loads CommonJS `main.js`.
 
----
+```powershell
+# From the plugin folder
+npm install
+npm run build        # emit JS from TS sources (updates main.js)
+npm run build:watch  # auto‑rebuild on save
+npm run typecheck    # no‑emit type checking
+```
 
-*Note: This plugin is only available via GitHub until official community plugin approval.*
+Structure highlights
+- Entry source: `main.ts` (emits `main.js`)
+- Modules: `src/constants.ts`, `src/lemmatizer.ts`, `src/chineseSegmenter.ts`, `src/languageManager.ts`, `src/i18n/translations.ts`, `src/data/poem.ts`
+- Types: `types/obsidian-shim.d.ts` for editor IntelliSense
 
-## Quick Start
+## Language support
 
-1. Click the ribbon icon 📊
-2. Select your language (Russian/English/Chinese)
-3. Click "Refresh Statistics"
-4. Switch between table and chart views
+- Russian: dictionary‑based lemmatization
+- English: dictionary‑based lemmatization
+- Chinese: optimized word segmentation
 
-## Language Support
+## Run the strict test
 
-- **Russian**: Advanced lemmatization with case/verb normalization
-- **English**: Dictionary-based word form normalization
-- **Chinese**: Optimized word segmentation for modern text
-
-## Settings
-
-- Minimum word length filtering
-- Exclude common words (0-100%)
-- Content filtering (markdown, code, URLs, etc.)
-- Custom word exclusion lists
-- Enable/disable caching
-
-## Alpha Version Notice
-
-This is an **alpha release**. Some features may be experimental and require further testing.
-
-**Next version focus:**
-- Update and expand dictionaries
-- Fix reported bugs
-- Improve segmentation accuracy
+Open Settings → Word Statistics → “Run Strict Test”. The test processes a reference poem in RU/EN/ZH and validates totals, uniques, and top words with a small tolerance. Use this to sanity‑check dictionaries and segmentation.
 
 ## Support
 
-Report issues and suggestions on GitHub. Please include:
+Report issues and suggestions on GitHub:
 - Obsidian version
 - Plugin version
-- Detailed description of the issue
+- Steps to reproduce and any console errors
 
 ## License
 
@@ -150,4 +157,6 @@ MIT License
 
 ---
 
-*Alpha version - Use with caution*
+Screenshots: Coming soon (chart + table view, settings).
+
+— Alpha build —
