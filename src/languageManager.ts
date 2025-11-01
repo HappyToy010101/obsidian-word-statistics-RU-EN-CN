@@ -14,10 +14,10 @@ export class LanguageManager {
     constructor(plugin) {
         /** @type {any} Reference to the main plugin */
         this.plugin = plugin;
-        /** @type {Lemmatizer} Russian language lemmatizer */
-        this.russianLemmatizer = new Lemmatizer();
-        /** @type {Lemmatizer} English language lemmatizer */
-        this.englishLemmatizer = new Lemmatizer();
+    /** @type {Lemmatizer} Russian language lemmatizer */
+    this.russianLemmatizer = new Lemmatizer(this.plugin);
+    /** @type {Lemmatizer} English language lemmatizer */
+    this.englishLemmatizer = new Lemmatizer(this.plugin);
     /** @type {ChineseSegmenter} Chinese text segmenter */
     this.chineseSegmenter = new ChineseSegmenter(this.plugin);
         /** @type {boolean} Whether all language tools have been initialized */
@@ -29,7 +29,14 @@ export class LanguageManager {
      * Only loads the currently selected language immediately, others on-demand
      */
     async initialize() {
-        if (this.initialized) return;
+        const currentLanguage = this.plugin.settings.language;
+        if (this.initialized) {
+            // Ensure the currently selected language is loaded even if already initialized
+            await this.ensureLanguageLoaded(currentLanguage);
+            // Apply options after ensure
+            this.applyOptions();
+            return;
+        }
         
         console.log("🚀 Initializing language managers...");
         const startTime = Date.now();
@@ -41,6 +48,8 @@ export class LanguageManager {
             switch (currentLanguage) {
                 case 'russian':
                     await this.russianLemmatizer.loadDictionary('russian');
+                    // Support three modes: true='advanced', 'simple', false/undefined='off'
+                    this.russianLemmatizer.setOptions({ advancedFallback: this.plugin?.settings?.russianAdvancedFallback });
                     break;
                 case 'english':
                     await this.englishLemmatizer.loadDictionary('english');
@@ -51,33 +60,9 @@ export class LanguageManager {
                 default:
                     console.warn(`Unknown language: ${currentLanguage}, loading Russian as default`);
                     await this.russianLemmatizer.loadDictionary('russian');
+                    this.russianLemmatizer.setOptions({ advancedFallback: this.plugin?.settings?.russianAdvancedFallback });
                     break;
             }
-            
-            // Load other dictionaries in background after a delay
-            setTimeout(async () => {
-                try {
-                    const backgroundTasks = [];
-                    
-                    if (currentLanguage !== 'russian' && !this.russianLemmatizer.loaded) {
-                        backgroundTasks.push(this.russianLemmatizer.loadDictionary('russian'));
-                    }
-                    if (currentLanguage !== 'english' && !this.englishLemmatizer.loaded) {
-                        backgroundTasks.push(this.englishLemmatizer.loadDictionary('english'));
-                    }
-                    if (currentLanguage !== 'chinese' && !this.chineseSegmenter.loaded) {
-                        backgroundTasks.push(this.chineseSegmenter.loadDictionary('chinese'));
-                    }
-                    
-                    if (backgroundTasks.length > 0) {
-                        console.log("📦 Loading remaining dictionaries in background...");
-                        await Promise.allSettled(backgroundTasks);
-                        console.log("✅ Background dictionary loading completed");
-                    }
-                } catch (error) {
-                    console.warn("Some background dictionaries failed to load:", error);
-                }
-            }, 2000); // 2 second delay for background loading
             
             this.initialized = true;
             const initTime = Date.now() - startTime;
@@ -104,6 +89,7 @@ export class LanguageManager {
                 if (!this.russianLemmatizer.loaded) {
                     await this.russianLemmatizer.loadDictionary('russian');
                 }
+                this.russianLemmatizer.setOptions({ advancedFallback: this.plugin?.settings?.russianAdvancedFallback });
                 break;
             case 'english':
                 if (!this.englishLemmatizer.loaded) {
@@ -129,9 +115,25 @@ export class LanguageManager {
 
         switch (language) {
             case 'russian':
-                return this.russianLemmatizer.lemmatize(word);
+                {
+                    const clean = (word || '').toLowerCase().trim();
+                    const had = this.russianLemmatizer?.lemmas?.has(clean);
+                    const lemma = this.russianLemmatizer.lemmatize(word);
+                    if (!had) {
+                        try { this.plugin.registerUnknownWord('russian', clean, lemma); } catch {}
+                    }
+                    return lemma;
+                }
             case 'english':
-                return this.englishLemmatizer.lemmatize(word);
+                {
+                    const clean = (word || '').toLowerCase().trim();
+                    const had = this.englishLemmatizer?.lemmas?.has(clean);
+                    const lemma = this.englishLemmatizer.lemmatize(word);
+                    if (!had) {
+                        try { this.plugin.registerUnknownWord('english', clean, lemma); } catch {}
+                    }
+                    return lemma;
+                }
             case 'chinese':
                 return this.chineseSegmenter.lemmatize(word);
             default:
@@ -179,7 +181,8 @@ export class LanguageManager {
                 method: "Лемматизация по словарю",
                 status: this.russianLemmatizer.loaded ? "✅ Загружен" : "❌ Не загружен",
                 description: "Преобразует словоформы в словарные леммы",
-                entries: this.russianLemmatizer.getStats().entries
+                entries: this.russianLemmatizer.getStats().entries,
+                counters: this.russianLemmatizer.getStats().counters
             },
             english: {
                 method: "Dictionary Lemmatization", 
@@ -200,5 +203,12 @@ export class LanguageManager {
         console.log("🔄 Reloading dictionaries...");
         this.initialized = false;
         await this.initialize();
+    }
+
+    /** Apply runtime options to language tools, e.g., advanced Russian fallback */
+    applyOptions() {
+        try {
+            this.russianLemmatizer.setOptions({ advancedFallback: this.plugin?.settings?.russianAdvancedFallback });
+        } catch {}
     }
 }

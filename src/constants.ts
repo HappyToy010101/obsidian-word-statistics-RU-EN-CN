@@ -375,3 +375,28 @@ a=a`,
 看
 说`
 };
+
+// Language-specific prepositions/particles to optionally exclude from statistics
+export const PREPOSITIONS: Record<string, string[]> = {
+    russian: [
+        // Simple prepositions + common variants
+        "в","во","на","с","со","к","ко","о","об","обо","от","ото","по",
+        "за","для","из","изо","у","над","надо","под","перед","пред","предо",
+        "при","между","через","про","без","после","около","вместо","среди","сквозь",
+        "В","Во","На","С","Со","К","Ко","О","Об","Обо","От","Ото","По",
+        "За","Для","Из","Изо","У","Над","Надо","Под","Перед","Пред","Предо",
+        "При","Между","Через","Про","Без","После","Около","Вместо","Среди","Сквозь"
+    ],
+    english: [
+        "of","to","in","for","on","with","at","from","into","during","including",
+        "until","against","among","throughout","despite","towards","upon","concerning",
+        "about","over","before","between","after","since","without","under","within",
+        "along","following","across","behind","beyond","plus","except","but","up","out",
+        "around","down","off","above","near"
+    ],
+    chinese: [
+        // Coverbs/prepositions/particles commonly excluded from frequency stats
+        "在","对","给","从","到","向","往","被","把","和","跟","与","于","对于","关于","到",
+        "了","着","过","的"
+    ]
+};

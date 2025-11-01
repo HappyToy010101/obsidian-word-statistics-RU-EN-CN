@@ -39,24 +39,16 @@ Your name is a kiss in the snow.
 Key, icy, blue gulp.
 With your name — sleep deep.`,
 
-    chinese: `你的名字是手中的鸟，
-你的名字是舌尖的冰。
-唯一双唇的动作。
-你的名字是五个字母。
-球在空中被接住，
-银铃在嘴里。
-石头扔进安静的池塘，
-啜泣着你的名字。
-在夜间马蹄的轻响中
-你响亮的名字雷鸣。
-它会在太阳穴呼唤我们
-响亮的扣动扳机。
-你的名字——不能！——
-你的名字是吻在眼睛上，
-在不动眼睑的温柔寒冷中，
-你的名字是雪中的吻。
-关键，冰冷，蓝色的一口。
-带着你的名字——沉睡。`
+    chinese: `你的名字在风中，
+你的名字在雨里。
+我们在这里，你们在那里，他们在远方。
+我们的名字在清晨醒来，
+你们的故事在夜里回响，
+他们的梦想在星空下生长。
+她们的心在黎明歌唱，它们的影子在水面摇晃。
+这是我们的诗，也是你们的梦，更是他们的路。
+我 们 的 朋友记得我们，你 们 的 朋友想念你们，
+他 们 的 回声告诉她们：我们的、你们的、他们的，都在这首诗里。`
 } as const;
 
 // Expected statistics for each language - keep in sync with dictionary behavior
@@ -89,17 +81,16 @@ export const EXPECTED_STATS = {
         ]
     },
     chinese: {
-        totalWords: 91,
-        uniqueWords: 50,
+        totalWords: 120,
+        uniqueWords: 62,
         topWords: [
-            { word: '的', count: 10 },
-            { word: '名字', count: 9 },
-            { word: '你的', count: 8 },
-            { word: '在', count: 6 },
-            { word: '是', count: 5 },
-            { word: '中', count: 2 },
-            { word: '响亮', count: 2 },
-            { word: '吻', count: 2 }
+            { word: '的', count: 12 },
+            { word: '名字', count: 6 },
+            { word: '你的', count: 4 },
+            { word: '我们的', count: 4 },
+            { word: '你们的', count: 4 },
+            { word: '他们的', count: 4 },
+            { word: '在', count: 6 }
         ]
     }
 } as const;

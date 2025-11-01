@@ -58,7 +58,7 @@ var __async = (__this, __arguments, generator) => {
 
 // main.js
 var import_obsidian = require("obsidian");
-import { DICTIONARY_URLS, DEFAULT_DICTIONARIES } from "./src/constants";
+import { DICTIONARY_URLS, DEFAULT_DICTIONARIES, PREPOSITIONS } from "./src/constants";
 import { Lemmatizer } from "./src/lemmatizer";
 import { ChineseSegmenter } from "./src/chineseSegmenter";
 import { LanguageManager } from "./src/languageManager";
@@ -120,135 +120,181 @@ class EnhancedTestSystem {
     }
 
     async runStrictTest() {
-        console.log("🧪 Running STRICT lemmatization test...");
-        
-        const testCases = [
-            {
+        console.log("🧪 Running STRICT lemmatization test (current language only)...");
+
+        // Only test the CURRENT language to avoid loading extra dictionaries
+        const currentLang = this.plugin.settings.language;
+        const CASES = {
+            russian: {
                 name: "Russian Lemmatization",
                 language: "russian",
                 text: POEM_CONTENT.russian,
                 expected: EXPECTED_STATS.russian,
                 tolerance: { total: 2, unique: 3 }
             },
-            {
-                name: "English Lemmatization", 
+            english: {
+                name: "English Lemmatization",
                 language: "english",
                 text: POEM_CONTENT.english,
                 expected: EXPECTED_STATS.english,
                 tolerance: { total: 2, unique: 3 }
             },
-            {
+            chinese: {
                 name: "Chinese Segmentation",
-                language: "chinese", 
+                language: "chinese",
                 text: POEM_CONTENT.chinese,
                 expected: EXPECTED_STATS.chinese,
-                tolerance: { total: 5, unique: 5 } // Increased tolerance for Chinese
+                tolerance: { total: 5, unique: 5 }
             }
-        ];
+        };
+
+        const testCase = CASES[currentLang] || CASES.russian;
+
+        // For Chinese test ensure deterministic settings (dictionary mode, no heuristics, min length = 1)
+        const restoreSettings: any = {};
+        if (testCase.language === 'chinese') {
+            try {
+                restoreSettings.chineseSegmentation = this.plugin.settings.chineseSegmentation;
+                restoreSettings.chineseContextHeuristics = this.plugin.settings.chineseContextHeuristics;
+                restoreSettings.chineseAdjectivalHeuristics = this.plugin.settings.chineseAdjectivalHeuristics;
+                restoreSettings.minWordLength = this.plugin.settings.minWordLength;
+                restoreSettings.ignorePrepositions = this.plugin.settings.ignorePrepositions;
+
+                let needReload = false;
+                if (this.plugin.settings.chineseSegmentation !== 'dictionary') {
+                    this.plugin.settings.chineseSegmentation = 'dictionary';
+                    needReload = true;
+                }
+                // Disable heuristics for strict, reproducible counts
+                this.plugin.settings.chineseContextHeuristics = false;
+                this.plugin.settings.chineseAdjectivalHeuristics = false;
+                // Ensure single-char tokens like “的” are counted
+                this.plugin.settings.minWordLength = 1;
+                // Do not exclude particles in strict test evaluation
+                this.plugin.settings.ignorePrepositions = false;
+
+                if (needReload) {
+                    // Reload CN dictionaries/segmenter to apply mode change
+                    await this.plugin.languageManager.reloadDictionaries();
+                }
+            } catch (e) {
+                console.warn('Failed to adjust settings for strict CN test:', e);
+            }
+        }
 
         const results = [];
         let passedTests = 0;
         let totalTests = 0;
 
-        for (const testCase of testCases) {
-            totalTests++;
-            console.log(`🔬 Testing: ${testCase.name}`);
-            
-            try {
-                // Set language
-                const originalLanguage = this.plugin.settings.language;
-                this.plugin.settings.language = testCase.language;
-                await this.plugin.languageManager.initialize();
-                
-                // Process test text
-                const words = this.plugin.extractWords(testCase.text, "");
-                const wordStats = new Map();
-                
-                words.forEach(word => {
-                    wordStats.set(word, (wordStats.get(word) || 0) + 1);
-                });
+        totalTests++;
+        console.log(`🔬 Testing: ${testCase.name}`);
 
-                // Check total words
-                const totalWords = words.length;
-                const uniqueWords = wordStats.size;
-                
-                // Check top words - take as many as expected
-                const topWords = Array.from(wordStats.entries())
-                    .sort(([,a], [,b]) => b - a)
-                    .slice(0, testCase.expected.topWords.length)
-                    .map(([word, count]) => ({ word, count }));
+        try {
+            // Ensure ONLY the needed language tools are initialized
+            await this.plugin.languageManager.ensureLanguageLoaded(testCase.language);
 
-                // Enhanced validation with configurable tolerance
-                const totalWordsMatch = Math.abs(totalWords - testCase.expected.totalWords) <= testCase.tolerance.total;
-                const uniqueWordsMatch = Math.abs(uniqueWords - testCase.expected.uniqueWords) <= testCase.tolerance.unique;
-                
-                // Check if expected top words are in actual top words
-                let topWordsMatch = true;
-                let missingWords = [];
-                
-                testCase.expected.topWords.forEach(expectedWord => {
-                    const foundWord = topWords.find(actualWord => actualWord.word === expectedWord.word);
-                    if (!foundWord) {
-                        topWordsMatch = false;
-                        missingWords.push(expectedWord.word);
-                    } else if (Math.abs(foundWord.count - expectedWord.count) > 2) {
-                        // Allow small count differences
-                        console.log(`   Count mismatch for "${expectedWord.word}": expected ${expectedWord.count}, got ${foundWord.count}`);
-                    }
-                });
+            // Process test text using the language manager directly to avoid changing settings
+            const words = this.plugin.languageManager.extractWords(testCase.text, testCase.language, "");
+            const wordStats = new Map();
 
-                const passed = totalWordsMatch && uniqueWordsMatch && topWordsMatch;
-                
-                if (passed) {
-                    passedTests++;
-                    console.log(`✅ ${testCase.name}: PASSED`);
-                    console.log(`   Total: ${totalWords} (expected ${testCase.expected.totalWords})`);
-                    console.log(`   Unique: ${uniqueWords} (expected ${testCase.expected.uniqueWords})`);
-                } else {
-                    console.log(`❌ ${testCase.name}: FAILED`);
-                    console.log(`   Expected: ${testCase.expected.totalWords} total, ${testCase.expected.uniqueWords} unique`);
-                    console.log(`   Got: ${totalWords} total, ${uniqueWords} unique`);
-                    if (missingWords.length > 0) {
-                        console.log(`   Missing words: ${missingWords.join(', ')}`);
-                    }
-                    console.log(`   Expected top words:`, testCase.expected.topWords);
-                    console.log(`   Actual top words:`, topWords);
+            words.forEach(word => {
+                wordStats.set(word, (wordStats.get(word) || 0) + 1);
+            });
+
+            // Check totals
+            const totalWords = words.length;
+            const uniqueWords = wordStats.size;
+
+            // Check top words - take as many as expected
+            const topWords = Array.from(wordStats.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, testCase.expected.topWords.length)
+                .map(([word, count]) => ({ word, count }));
+
+            // Validation with tolerance
+            const totalWordsMatch = Math.abs(totalWords - testCase.expected.totalWords) <= testCase.tolerance.total;
+            const uniqueWordsMatch = Math.abs(uniqueWords - testCase.expected.uniqueWords) <= testCase.tolerance.unique;
+
+            // Required top words present
+            let topWordsMatch = true;
+            let missingWords = [];
+
+            testCase.expected.topWords.forEach(expectedWord => {
+                const foundWord = topWords.find(actualWord => actualWord.word === expectedWord.word);
+                if (!foundWord) {
+                    topWordsMatch = false;
+                    missingWords.push(expectedWord.word);
+                } else if (Math.abs(foundWord.count - expectedWord.count) > 2) {
+                    console.log(`   Count mismatch for "${expectedWord.word}": expected ${expectedWord.count}, got ${foundWord.count}`);
                 }
+            });
 
-                results.push({
-                    name: testCase.name,
-                    passed,
-                    details: {
-                        totalWords: { expected: testCase.expected.totalWords, actual: totalWords },
-                        uniqueWords: { expected: testCase.expected.uniqueWords, actual: uniqueWords },
-                        topWords: { expected: testCase.expected.topWords, actual: topWords },
-                        missingWords
-                    }
-                });
+            const passed = totalWordsMatch && uniqueWordsMatch && topWordsMatch;
 
-                // Restore original language
-                this.plugin.settings.language = originalLanguage;
+            if (passed) {
+                passedTests++;
+                console.log(`✅ ${testCase.name}: PASSED`);
+                console.log(`   Total: ${totalWords} (expected ${testCase.expected.totalWords})`);
+                console.log(`   Unique: ${uniqueWords} (expected ${testCase.expected.uniqueWords})`);
+            } else {
+                console.log(`❌ ${testCase.name}: FAILED`);
+                console.log(`   Expected: ${testCase.expected.totalWords} total, ${testCase.expected.uniqueWords} unique`);
+                console.log(`   Got: ${totalWords} total, ${uniqueWords} unique`);
+                if (missingWords.length > 0) {
+                    console.log(`   Missing words: ${missingWords.join(', ')}`);
+                }
+                console.log(`   Expected top words:`, testCase.expected.topWords);
+                console.log(`   Actual top words:`, topWords);
+            }
 
-            } catch (error) {
-                console.error(`💥 ${testCase.name}: ERROR`, error);
-                results.push({
-                    name: testCase.name,
-                    passed: false,
-                    error: error.message
-                });
+            results.push({
+                name: testCase.name,
+                passed,
+                details: {
+                    totalWords: { expected: testCase.expected.totalWords, actual: totalWords },
+                    uniqueWords: { expected: testCase.expected.uniqueWords, actual: uniqueWords },
+                    topWords: { expected: testCase.expected.topWords, actual: topWords },
+                    missingWords
+                }
+            });
+
+        } catch (error) {
+            console.error(`💥 ${testCase.name}: ERROR`, error);
+            results.push({
+                name: testCase.name,
+                passed: false,
+                error: error.message
+            });
+        }
+
+        // Restore settings if we modified them for CN test
+        if (testCase.language === 'chinese') {
+            try {
+                const prev = restoreSettings;
+                const modeChanged = this.plugin.settings.chineseSegmentation !== prev.chineseSegmentation;
+                this.plugin.settings.chineseSegmentation = prev.chineseSegmentation;
+                this.plugin.settings.chineseContextHeuristics = prev.chineseContextHeuristics;
+                this.plugin.settings.chineseAdjectivalHeuristics = prev.chineseAdjectivalHeuristics;
+                this.plugin.settings.minWordLength = prev.minWordLength;
+                this.plugin.settings.ignorePrepositions = prev.ignorePrepositions;
+                if (modeChanged) {
+                    await this.plugin.languageManager.reloadDictionaries();
+                }
+            } catch (e) {
+                console.warn('Failed to restore settings after strict CN test:', e);
             }
         }
 
-        // Final verdict
+        // Final verdict for a single test
         const successRate = (passedTests / totalTests) * 100;
         console.log(`📊 Test Results: ${passedTests}/${totalTests} passed (${successRate.toFixed(1)}%)`);
 
         if (successRate < 80) {
-            throw new Error(`🚨 CRITICAL TEST FAILURE: Only ${successRate.toFixed(1)}% of tests passed! Lemmatization is broken.`);
+            throw new Error(`🚨 CRITICAL TEST FAILURE: Only ${successRate.toFixed(1)}% of tests passed!`);
         } else if (successRate < 95) {
             console.warn(`⚠️  WARNING: ${successRate.toFixed(1)}% test pass rate - some features may not work correctly`);
         } else {
-            console.log(`🎉 EXCELLENT: ${successRate.toFixed(1)}% test pass rate - lemmatization is working perfectly!`);
+            console.log(`🎉 EXCELLENT: ${successRate.toFixed(1)}% test pass rate - looks good!`);
         }
 
         return {
@@ -266,7 +312,7 @@ class EnhancedTestSystem {
 var WordStatisticsView = class extends import_obsidian.ItemView {
     constructor(leaf, plugin) {
         super(leaf);
-        this.eventListeners = new Map();
+    this.eventListeners = new Map();
         this.infoEl = null;
         this.listContainer = null;
         this.displayMode = "table";
@@ -289,38 +335,49 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
     }
 
     async onOpen() {
+        // Lazy-load cached stats on first open to avoid work during app startup
+        try {
+            if (this.plugin.settings.enableCaching && this.plugin.allStats.size === 0) {
+                await this.plugin.loadCachedStats();
+            }
+        } catch (e) {
+            console.warn('Cache load on view open skipped:', e);
+        }
         await this.drawStats();
     }
 
     clearEventListeners() {
         try {
-            for (const [element, { event, callback }] of this.eventListeners) {
-                if (element && typeof element.removeEventListener === 'function') {
-                    element.removeEventListener(event, callback);
+            let total = 0;
+            for (const [element, listeners] of this.eventListeners) {
+                if (!element || typeof element.removeEventListener !== 'function') continue;
+                for (const l of listeners) {
+                    try {
+                        element.removeEventListener(l.event, l.callback, l.options ?? false);
+                        total++;
+                    } catch (e) {
+                        console.warn("Failed removing listener", l.event, e);
+                    }
                 }
             }
             this.eventListeners.clear();
-            console.log(`🧹 Cleared ${this.eventListeners.size} event listeners`);
+            console.log(`🧹 Cleared ${total} event listeners`);
         } catch (error) {
             console.error("Error clearing event listeners:", error);
         }
     }
 
-    addEventListener(element, event, callback) {
+    addEventListener(element, event, callback, options) {
         try {
             if (!element || typeof element.addEventListener !== 'function') {
                 console.warn("Invalid element for event listener:", element);
                 return;
             }
             
-            // Remove existing listener if present
-            if (this.eventListeners.has(element)) {
-                const existing = this.eventListeners.get(element);
-                element.removeEventListener(existing.event, existing.callback);
-            }
-            
-            element.addEventListener(event, callback);
-            this.eventListeners.set(element, { event, callback });
+            element.addEventListener(event, callback, options ?? false);
+            const arr = this.eventListeners.get(element) ?? [];
+            arr.push({ event, callback, options });
+            this.eventListeners.set(element, arr);
         } catch (error) {
             console.error("Error adding event listener:", error);
         }
@@ -489,9 +546,9 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
         });
 
         const languages = [
-            { value: "russian", name: "🇷🇺 Русский", flag: "🇷🇺" },
-            { value: "english", name: "🇺🇸 English", flag: "🇺🇸" },
-            { value: "chinese", name: "🇨🇳 中文", flag: "🇨🇳" }
+            { value: "russian", name: "RU Русский", flag: "RU" },
+            { value: "english", name: "EN English", flag: "EN" },
+            { value: "chinese", name: "ZH 中文", flag: "ZH" }
         ];
 
         languages.forEach((lang) => {
@@ -537,14 +594,22 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
             cls: "word-stats-slider-value"
         });
 
+        // Debounced filtering to avoid heavy work on every input tick
+        let filterDebounce;
         this.addEventListener(slider, "input", (e) => {
             const value = e.target.value;
             this.plugin.settings.excludeTopWords = parseInt(value);
-            this.plugin.updateFilteredStats();
             sliderLabel.setText(`🔝 ${this.t("excludeTopWords", parseInt(value), currentLanguageName)}`);
             sliderValue.setText(value + "%");
+            if (filterDebounce) clearTimeout(filterDebounce);
+            filterDebounce = setTimeout(() => {
+                this.plugin.updateFilteredStats();
+                this.updateStatsDisplay();
+            }, 150);
+        });
+        // Save setting once after interaction ends
+        this.addEventListener(slider, "change", () => {
             this.plugin.saveSettings(false).catch(console.error);
-            this.updateStatsDisplay();
         });
 
         // User words input
@@ -694,6 +759,15 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                 cls: "word-stats-last-updated"
             });
         }
+
+        // Subtle badge for unknown words (opens dictionary trainer)
+        try {
+            const unkCount = this.plugin.getUnknownCount(this.plugin.settings.language);
+            if (unkCount > 0) {
+                const badge = additionalInfo.createEl("button", { cls: "word-stats-unknown-badge", text: this.t("unknown_badge", unkCount) });
+                this.addEventListener(badge, "click", () => this.plugin.openUnknownWords());
+            }
+        } catch {}
     }
 
     updateWordList() {
@@ -827,6 +901,25 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
         });
 
         // Элементы управления
+        // Переносим кнопки зума внутрь обертки графика, чтобы они были закреплены относительно видимой области
+        const zoomOverlay = chartWrapper.createEl("div", { cls: "word-stats-chart-zoom" });
+        const zoomOut = zoomOverlay.createEl("button", {
+            text: this.t("zoomOut"),
+            cls: "word-stats-zoom-btn",
+            attr: { title: this.t("zoomOut"), 'aria-label': this.t("zoomOut") }
+        });
+        const zoomIn = zoomOverlay.createEl("button", {
+            text: this.t("zoomIn"), 
+            cls: "word-stats-zoom-btn",
+            attr: { title: this.t("zoomIn"), 'aria-label': this.t("zoomIn") }
+        });
+        const resetZoom = zoomOverlay.createEl("button", {
+            text: this.t("resetZoom"),
+            cls: "word-stats-zoom-btn",
+            attr: { title: this.t("resetZoom"), 'aria-label': this.t("resetZoom") }
+        });
+
+        // Панель с остальными контролами под графиком (ползунок навигации)
         const chartControls = chartContainer.createEl("div", { cls: "word-stats-chart-controls" });
         
         // Ползунок для навигации
@@ -852,24 +945,6 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
         sliderContainer.createEl("span", { 
             text: "→",
             attr: { style: "color: var(--text-muted); font-size: 14px;" }
-        });
-
-        // Кнопки зума
-        const zoomContainer = chartControls.createEl("div", { cls: "word-stats-chart-zoom" });
-        const zoomOut = zoomContainer.createEl("button", {
-            text: this.t("zoomOut"),
-            cls: "word-stats-zoom-btn",
-            attr: { title: "Уменьшить масштаб" }
-        });
-        const zoomIn = zoomContainer.createEl("button", {
-            text: this.t("zoomIn"), 
-            cls: "word-stats-zoom-btn",
-            attr: { title: "Увеличить масштаб" }
-        });
-        const resetZoom = zoomContainer.createEl("button", {
-            text: this.t("resetZoom"),
-            cls: "word-stats-zoom-btn",
-            attr: { title: "Сбросить масштаб" }
         });
 
         // Отрисовка линейного графика
@@ -904,15 +979,11 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
             };
         };
 
-        // Optimized chart drawing function with debouncing
-        let drawChartTimeout = null;
+        // Optimized chart drawing function with requestAnimationFrame scheduling
+        let drawChartRaf = 0;
         const drawChart = () => {
-            // Clear any pending draw operations
-            if (drawChartTimeout) {
-                clearTimeout(drawChartTimeout);
-            }
-            
-            drawChartTimeout = setTimeout(() => {
+            if (drawChartRaf) cancelAnimationFrame(drawChartRaf);
+            drawChartRaf = requestAnimationFrame(() => {
                 // Declare width/height outside try so catch can reference them safely
                 let width = 0;
                 let height = 0;
@@ -921,17 +992,30 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                     width = dims.width;
                     height = dims.height;
                     
-                    // Set canvas dimensions with device pixel ratio for crisp rendering
+                    // Reset transform each frame and set DPR-aware transform
                     const dpr = window.devicePixelRatio || 1;
-                    canvas.width = width * dpr;
-                    canvas.height = height * dpr;
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    canvas.width = Math.max(1, Math.floor(width * dpr));
+                    canvas.height = Math.max(1, Math.floor(height * dpr));
                     canvas.style.width = width + 'px';
                     canvas.style.height = height + 'px';
-                    ctx.scale(dpr, dpr);
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                     
                     // Clear canvas efficiently
                     ctx.clearRect(0, 0, width, height);
-            
+                    
+                    // Cache theme colors once per draw
+                    const styles = getComputedStyle(document.body);
+                    const COLOR = {
+                        bgPrimary: styles.getPropertyValue('--background-primary') || '#ffffff',
+                        bgSecondary: styles.getPropertyValue('--background-secondary') || '#f5f5f5',
+                        border: styles.getPropertyValue('--background-modifier-border') || '#dddddd',
+                        textNormal: styles.getPropertyValue('--text-normal') || '#000000',
+                        textMuted: styles.getPropertyValue('--text-muted') || '#666666',
+                        accent: styles.getPropertyValue('--interactive-accent') || '#7e6df3',
+                        accentHover: styles.getPropertyValue('--interactive-accent-hover') || '#5a4fc9'
+                    };
+                    
             // Если нет данных, выходим
             if (displayStats.length === 0) return;
             
@@ -949,11 +1033,11 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
             const valueRange = maxValue - minValue;
             
             // Рисуем фон
-            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--background-primary') || '#ffffff';
+            ctx.fillStyle = COLOR.bgPrimary;
             ctx.fillRect(0, 0, width, height);
             
             // Рисуем сетку
-            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--background-modifier-border') || '#dddddd';
+            ctx.strokeStyle = COLOR.border;
             ctx.lineWidth = 1;
             ctx.setLineDash([2, 2]);
             
@@ -967,7 +1051,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                 ctx.stroke();
                 
                 // Подписи значений Y
-                ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-muted') || '#666666';
+                ctx.fillStyle = COLOR.textMuted;
                 ctx.font = '12px Arial';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'middle';
@@ -978,7 +1062,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
             ctx.setLineDash([]);
             
             // Рисуем оси
-            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-muted') || '#666666';
+            ctx.strokeStyle = COLOR.textMuted;
             ctx.lineWidth = 2;
             
             // Ось Y
@@ -1025,7 +1109,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
             ctx.fill();
             
             // Рисуем линию графика
-            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--interactive-accent') || '#7e6df3';
+            ctx.strokeStyle = COLOR.accent;
             ctx.lineWidth = 4;
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
@@ -1045,7 +1129,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                 if (showLabel) {
                     // Подпись слова (под осью X) - ГОРИЗОНТАЛЬНО (0 градусов)
                     ctx.save();
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-muted') || '#666666';
+                    ctx.fillStyle = COLOR.textMuted;
                     ctx.font = '12px Arial'; // Увеличил размер шрифта
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'top';
@@ -1061,7 +1145,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                     ctx.restore();
                     
                     // Подпись значения (над точкой)
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-normal') || '#000000';
+                    ctx.fillStyle = COLOR.textNormal;
                     ctx.font = 'bold 11px Arial';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'bottom';
@@ -1070,8 +1154,8 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                 
                 // Рисуем точку с градиентом
                 const pointGradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, 6);
-                pointGradient.addColorStop(0, getComputedStyle(document.body).getPropertyValue('--interactive-accent') || '#7e6df3');
-                pointGradient.addColorStop(1, getComputedStyle(document.body).getPropertyValue('--interactive-accent-hover') || '#5a4fc9');
+                pointGradient.addColorStop(0, COLOR.accent);
+                pointGradient.addColorStop(1, COLOR.accentHover);
                 
                 ctx.fillStyle = pointGradient;
                 ctx.beginPath();
@@ -1079,20 +1163,20 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                 ctx.fill();
                 
                 // Обводка точки
-                ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--background-primary') || '#ffffff';
+                ctx.strokeStyle = COLOR.bgPrimary;
                 ctx.lineWidth = 2;
                 ctx.stroke();
             });
             
                     // Chart title with improved typography
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-normal') || '#000000';
+                    ctx.fillStyle = COLOR.textNormal;
                     ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'top';
                     ctx.fillText('📊 ' + this.t("chartTitle"), width / 2, 20);
                     
                     // Axis labels with better typography
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-muted') || '#666666';
+                    ctx.fillStyle = COLOR.textMuted;
                     ctx.font = '14px system-ui, -apple-system, sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'top';
@@ -1119,37 +1203,47 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
                     const safeWidth = width || Math.max(1, Math.floor(canvas.width / dpr));
                     const safeHeight = height || Math.max(1, Math.floor(canvas.height / dpr));
                     ctx.fillText('Error rendering chart', safeWidth / 2, safeHeight / 2);
+                } finally {
+                    drawChartRaf = 0;
                 }
-            }, 16); // ~60fps throttling
+            });
         };
 
         // Функция обновления позиции прокрутки
         const updateScrollPosition = () => {
-            const canvasWidth = canvas.width;
+            // Use CSS pixel widths to match scrollLeft units
+            const canvasWidthCss = canvas.clientWidth;
             const wrapperWidth = chartWrapper.clientWidth;
-            const maxScroll = Math.max(0, canvasWidth - wrapperWidth);
+            const maxScroll = Math.max(0, canvasWidthCss - wrapperWidth);
             const newScroll = (scrollPosition / 100) * maxScroll;
             chartWrapper.scrollLeft = newScroll;
         };
 
         // Обработчики для масштабирования
-        zoomIn.addEventListener('click', () => {
+        let lastZoomTs = 0;
+        this.addEventListener(zoomIn, 'click', () => {
+            const now = Date.now();
+            if (now - lastZoomTs < 80) return; // throttle rapid clicks
             if (zoomLevel < maxZoom) {
                 zoomLevel = Math.min(maxZoom, zoomLevel + zoomStep);
                 drawChart();
                 updateScrollPosition();
             }
+            lastZoomTs = now;
         });
 
-        zoomOut.addEventListener('click', () => {
+        this.addEventListener(zoomOut, 'click', () => {
+            const now = Date.now();
+            if (now - lastZoomTs < 80) return; // throttle rapid clicks
             if (zoomLevel > minZoom) {
                 zoomLevel = Math.max(minZoom, zoomLevel - zoomStep);
                 drawChart();
                 updateScrollPosition();
             }
+            lastZoomTs = now;
         });
 
-        resetZoom.addEventListener('click', () => {
+        this.addEventListener(resetZoom, 'click', () => {
             zoomLevel = 1.0;
             scrollPosition = 0;
             slider.value = "0";
@@ -1159,22 +1253,32 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
         });
 
         // Обработчик для ползунка
-        slider.addEventListener('input', (e) => {
+        this.addEventListener(slider, 'input', (e) => {
             scrollPosition = parseInt(e.target.value);
             updateScrollPosition();
         });
 
         // Обработчик для прокрутки колесиком мыши
-        chartWrapper.addEventListener('wheel', (e) => {
+        let wheelAccum = 0;
+        let wheelRaf = 0;
+        const wheelHandler = (e) => {
             e.preventDefault();
-            chartWrapper.scrollLeft += e.deltaY;
-        });
+            wheelAccum += e.deltaY;
+            if (!wheelRaf) {
+                wheelRaf = requestAnimationFrame(() => {
+                    chartWrapper.scrollLeft += wheelAccum;
+                    wheelAccum = 0;
+                    wheelRaf = 0;
+                });
+            }
+        };
+        this.addEventListener(chartWrapper, 'wheel', wheelHandler, { passive: false });
 
         // Обновление ползунка при ручной прокрутке
-        chartWrapper.addEventListener('scroll', () => {
-            const canvasWidth = canvas.width;
+        this.addEventListener(chartWrapper, 'scroll', () => {
+            const canvasWidthCss = canvas.clientWidth;
             const wrapperWidth = chartWrapper.clientWidth;
-            const maxScroll = Math.max(1, canvasWidth - wrapperWidth);
+            const maxScroll = Math.max(1, canvasWidthCss - wrapperWidth);
             const currentScroll = chartWrapper.scrollLeft;
             scrollPosition = maxScroll === 0 ? 0 : (currentScroll / maxScroll) * 100;
             slider.value = scrollPosition.toString();
@@ -1263,6 +1367,8 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         this.view = null;
     /** @type {import("./src/languageManager").LanguageManager} Language processing manager */
         this.languageManager = new LanguageManager(this);
+        // Unknown words collected for dictionary training per language
+        this.unknownWords = { russian: new Map(), english: new Map(), chinese: new Map() };
         
         this.topWords = {
             russian: [
@@ -1310,21 +1416,8 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
             // Load settings first (critical for operation)
             await this.loadSettings();
             console.log("✅ Settings loaded");
-            
-            // Initialize language manager (with lazy loading)
-            await this.languageManager.initialize();
-            console.log("✅ Language manager initialized");
-
-            // Load cached statistics if enabled (non-critical)
-            if (this.settings.enableCaching) {
-                try {
-                    await this.loadCachedStats();
-                    console.log("✅ Cached statistics loaded");
-                } catch (error) {
-                    console.warn("Failed to load cached stats:", error);
-                    // Continue without cached data
-                }
-            }
+            // Do not initialize language tools or load caches here to keep startup fast.
+            // Language tools and caches will be loaded lazily on first use (view open/refresh).
 
             // Register view
             this.registerView("word-stats-view", (leaf) => {
@@ -1346,6 +1439,23 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
             });
 
             this.addSettingTab(new WordStatsSettingTab(this.app, this));
+
+            // Listen to system language changes if user opted to follow
+            this._systemLanguageHandler = () => {
+                try {
+                    if (this.settings && this.settings.followSystemLanguage) {
+                        const newLang = this.detectDefaultLanguage();
+                        if (["russian","english","chinese"].includes(newLang) && newLang !== this.settings.language) {
+                            console.log('🌍 System language changed → applying', newLang);
+                            this.settings.language = newLang;
+                            this.saveSettings(true).catch(console.error);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('languagechange handler error:', e);
+                }
+            };
+            try { window.addEventListener('languagechange', this._systemLanguageHandler); } catch {}
 
             // Add commands
             this.addCommand({
@@ -1402,6 +1512,20 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
                 }
             });
 
+            // Manual Chinese segmentation session command
+            this.addCommand({
+                id: "open-manual-chinese-seg",
+                name: TRANSLATIONS[this.settings.language].settings_manualSegmentation,
+                callback: () => {
+                    try {
+                        this.openManualSegmentation();
+                    } catch (e) {
+                        console.error("Error opening manual segmentation:", e);
+                        new import_obsidian.Notice("❌ Error opening manual segmentation");
+                    }
+                }
+            });
+
             const loadTime = Date.now() - loadStartTime;
             console.log(`✅ Language Statistics plugin loaded successfully in ${loadTime}ms`);
 
@@ -1430,6 +1554,21 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         return names[this.settings.language];
     }
 
+    // Detect user's default language from the environment to set initial plugin language
+    detectDefaultLanguage() {
+        try {
+            const langs = (typeof navigator !== 'undefined' && (navigator.languages || [navigator.language])) || [];
+            const pick = (langs[0] || 'en').toLowerCase();
+            if (pick.startsWith('ru')) return 'russian';
+            if (pick.startsWith('zh') || pick.startsWith('cn')) return 'chinese';
+            // default fallback
+            return 'english';
+        } catch (e) {
+            // safest fallback
+            return 'english';
+        }
+    }
+
     lemmatizeWord(word) {
         return this.languageManager.lemmatizeWord(word, this.settings.language);
     }
@@ -1443,6 +1582,13 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         const startTime = Date.now();
         
         try {
+            // Ensure language tools for current language are ready before processing
+            try {
+                await this.languageManager.ensureLanguageLoaded(this.settings.language);
+                this.languageManager.applyOptions?.();
+            } catch (e) {
+                console.warn('Proceeding without fully initialized language tools:', e);
+            }
             // Initialize state
             this.allStats.clear();
             this.filteredStats.clear();
@@ -1569,12 +1715,20 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
                 .filter(word => word && word.length > 0);
 
             const additionalExcluded = this.getAdditionalExcludedWords();
+            // Optionally exclude language prepositions
+            let preps: string[] = [];
+            if (this.settings.ignorePrepositions && PREPOSITIONS && PREPOSITIONS[this.settings.language]) {
+                preps = PREPOSITIONS[this.settings.language]
+                    .map((w) => this.lemmatizeWord(w))
+                    .filter((w) => w && w.length > 0);
+            }
             
             // Use Set for O(1) lookups
             const allExcludedWords = new Set([
                 ...excludedTopWords,
                 ...this.userWords,
-                ...additionalExcluded
+                ...additionalExcluded,
+                ...preps
             ]);
 
             // Filter statistics efficiently
@@ -1632,6 +1786,86 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         const data = await this.loadData() || {};
         data.userWords = Array.from(this.userWords);
         await this.saveData(data);
+    }
+
+    // Register a wordform not found in the base dictionary with its suggested lemma
+    registerUnknownWord(language, wordform, lemma) {
+        try {
+            if (!language || !wordform) return;
+            const map = this.unknownWords[language] || (this.unknownWords[language] = new Map());
+            const key = (wordform || '').toLowerCase().trim();
+            if (!key) return;
+            const prev = map.get(key);
+            if (prev) {
+                prev.count += 1;
+                // If lemma changes, keep the latest suggestion
+                if (lemma && prev.lemma !== lemma) prev.lemma = lemma;
+            } else {
+                map.set(key, { lemma: (lemma || key), count: 1 });
+            }
+        } catch {}
+    }
+
+    getUnknownCount(language) {
+        try { return (this.unknownWords[language]?.size) || 0; } catch { return 0; }
+    }
+
+    getUnknownEntries(language) {
+        const map = this.unknownWords[language] || new Map();
+        return Array.from(map.entries()).map(([word, data]) => ({ word, lemma: data.lemma, count: data.count }));
+    }
+
+    clearUnknown(language) {
+        if (this.unknownWords[language]) this.unknownWords[language].clear();
+    }
+
+    async addCustomMapping(language, wordform, lemma) {
+        if (!language || !wordform) return;
+        const wf = (wordform || '').toLowerCase().trim();
+        const lm = (lemma || '').toLowerCase().trim() || wf;
+        if (!wf) return;
+        if (language === 'chinese') {
+            // For Chinese, store as custom phrase
+            const list = Array.isArray(this.settings.chineseCustomWords) ? this.settings.chineseCustomWords : [];
+            if (!list.includes(wf)) list.push(wf);
+            this.settings.chineseCustomWords = list;
+            await this.saveSettings(true);
+            this.unknownWords.chinese?.delete(wf);
+            new import_obsidian.Notice(`➕ ${wf}`);
+            return;
+        }
+        // RU/EN: append to custom lemmas file and update in-memory map
+        try {
+            const id = this.manifest?.id || 'word-statistics-ru-en-cn';
+            const folder = `.obsidian/plugins/${id}/dictionaries`;
+            try { await this.app.vault.adapter.mkdir(folder); } catch {}
+            const file = language === 'russian' ? `${folder}/custom_russian_lemmas.txt` : `${folder}/custom_english_lemmas.txt`;
+            let prefix = '';
+            try {
+                const stat = await this.app.vault.adapter.stat(file);
+                if (stat && stat.exists) prefix = '\n';
+            } catch {}
+            await this.app.vault.adapter.append(file, `${prefix}${wf}=${lm}`);
+            // Update in-memory lemmatizer
+            if (language === 'russian') this.languageManager.russianLemmatizer?.lemmas?.set(wf, lm);
+            if (language === 'english') this.languageManager.englishLemmatizer?.lemmas?.set(wf, lm);
+            // Remove from unknown set
+            this.unknownWords[language]?.delete(wf);
+            new import_obsidian.Notice(`✅ ${wf} → ${lm}`);
+        } catch (e) {
+            console.error('Failed to save custom mapping', e);
+            new import_obsidian.Notice('❌ Failed to save custom mapping');
+        }
+    }
+
+    openUnknownWords() {
+        try {
+            const modal = new UnknownWordsModal(this.app, this, this.settings.language);
+            modal.open();
+        } catch (e) {
+            console.error('Failed to open unknown words modal', e);
+            new import_obsidian.Notice('❌ Error opening review modal');
+        }
     }
 
     async processFile(file) {
@@ -1789,6 +2023,71 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
      * Load and validate plugin settings
      */
     async loadSettings() {
+        // Load raw data first to allow migrations/cleanup before merging
+        const rawData = await this.loadData();
+
+        // Migration: remove legacy/obsolete fields from saved settings/data
+        const migrateData = (data) => {
+            let changed = false;
+            if (!data || typeof data !== 'object') return { data, changed };
+
+            // Known legacy keys related to removed CRF functionality or old names
+            const legacySettingKeys = [
+                'chineseCrfModelUrl',
+                'crfModelUrl',
+                'useCrf',
+                'enableCrf',
+                'crfEnabled',
+                'chineseCrfEnabled',
+                'chineseSegmentationMode' // old alias
+            ];
+
+            // Clean settings object
+            if (data.settings && typeof data.settings === 'object') {
+                const s = data.settings;
+                // Map old value 'crf' to a supported segmentation mode
+                if (s.chineseSegmentation === 'crf') {
+                    s.chineseSegmentation = 'segmentit';
+                    changed = true;
+                }
+                // Drop legacy keys
+                for (const k of legacySettingKeys) {
+                    if (k in s) {
+                        delete s[k];
+                        changed = true;
+                    }
+                }
+            }
+
+            // Also remove any top-level legacy fields if present
+            const legacyRootKeys = [
+                'crfCache',
+                'crfModelUrl',
+                'crfState'
+            ];
+            for (const k of legacyRootKeys) {
+                if (k in data) {
+                    delete data[k];
+                    changed = true;
+                }
+            }
+
+            return { data, changed };
+        };
+
+        // Apply migration and persist if something changed (without recalculation)
+        let data = rawData || {};
+        try {
+            const { data: migrated, changed } = migrateData(data);
+            data = migrated;
+            if (changed) {
+                await this.saveData(data);
+                console.log('🧹 Settings/data migration: legacy fields removed');
+            }
+        } catch (e) {
+            console.warn('Settings/data migration skipped due to error:', e);
+        }
+
         const defaultSettings = {
             minWordLength: 1,
             excludedWords: "",
@@ -1801,12 +2100,35 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
             enableCaching: true,
             excludeTopWords: 0,
             language: "russian",
-            // Chinese segmentation mode: 'segmentit' or 'dictionary' (default)
-            chineseSegmentation: "dictionary"
+            // Chinese segmentation mode: 'segmentit' or 'dictionary'
+            chineseSegmentation: "dictionary",
+            // Network timeout for GitHub dictionary fetches (ms)
+            networkTimeoutMs: 3000,
+            // Prefer local dictionaries and never fetch online when available
+            preferLocalDictionaries: true,
+            // New options
+            ignorePrepositions: false,
+            chineseCustomWords: [],
+            chineseContextPairs: [],
+            russianAdvancedFallback: false,
+            // Context-aware Chinese heuristics (verb-object merges etc.)
+            chineseContextHeuristics: false,
+            // Optionally merge VO+的 adjectival forms
+            chineseAdjectivalHeuristics: false,
+            // When enabled, plugin language follows system/browser language
+            followSystemLanguage: true
         };
 
+        // If no saved language is present, auto-detect from user environment
         try {
-            const data = await this.loadData();
+            const hasSavedLanguage = !!(data && data.settings && typeof data.settings.language === 'string');
+            if (!hasSavedLanguage) {
+                defaultSettings.language = this.detectDefaultLanguage();
+                console.log('🌍 Auto-detected default language:', defaultSettings.language);
+            }
+        } catch {}
+
+        try {
             let settingsToMerge = {};
 
             if (data?.settings) {
@@ -1820,6 +2142,15 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
 
             // Validate and sanitize settings
             this.validateSettings();
+
+            // If opted-in, follow system language immediately (before any tool init)
+            if (this.settings.followSystemLanguage) {
+                const sysLang = this.detectDefaultLanguage();
+                if (["russian","english","chinese"].includes(sysLang) && sysLang !== this.settings.language) {
+                    this.settings.language = sysLang;
+                    console.log('🌍 Follow system language enabled → applying', sysLang);
+                }
+            }
 
             console.log("✅ Settings loaded successfully");
 
@@ -1858,7 +2189,8 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         // Validate boolean settings
         const booleanSettings = [
             'ignoreMarkdownSyntax', 'ignoreUrls', 'ignoreCodeBlocks',
-            'ignoreFrontmatter', 'ignoreMathBlocks', 'ignoreTags', 'enableCaching'
+            'ignoreFrontmatter', 'ignoreMathBlocks', 'ignoreTags', 'enableCaching',
+            'ignorePrepositions', 'russianAdvancedFallback', 'chineseContextHeuristics', 'chineseAdjectivalHeuristics', 'preferLocalDictionaries'
         ];
 
         booleanSettings.forEach(setting => {
@@ -1867,10 +2199,48 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
             }
         });
 
+        // followSystemLanguage defaults to false
+        if (typeof this.settings.followSystemLanguage !== 'boolean') {
+            this.settings.followSystemLanguage = false;
+        }
+
         // Validate Chinese segmentation mode
         const allowedCnSeg = ['segmentit', 'dictionary'];
         if (!allowedCnSeg.includes(this.settings.chineseSegmentation)) {
             this.settings.chineseSegmentation = 'segmentit';
+        }
+
+        // Normalize chineseCustomWords to array of strings
+        if (Array.isArray(this.settings.chineseCustomWords)) {
+            this.settings.chineseCustomWords = this.settings.chineseCustomWords
+                .filter((w) => typeof w === 'string')
+                .map((w) => w.trim())
+                .filter((w) => w.length > 0);
+        } else if (typeof this.settings.chineseCustomWords === 'string') {
+            const parts = this.settings.chineseCustomWords.split(/[,\n\r]+/);
+            this.settings.chineseCustomWords = parts.map((w) => w.trim()).filter((w) => w.length > 0);
+        } else {
+            this.settings.chineseCustomWords = [];
+        }
+
+        // Validate network timeout (1s .. 60s)
+        const minT = 1000, maxT = 60000;
+        if (typeof this.settings.networkTimeoutMs !== 'number' || !isFinite(this.settings.networkTimeoutMs)) {
+            this.settings.networkTimeoutMs = 3000;
+        }
+        this.settings.networkTimeoutMs = Math.max(minT, Math.min(maxT, Math.floor(this.settings.networkTimeoutMs)));
+
+        // Normalize chineseContextPairs to array of strings
+        if (Array.isArray(this.settings.chineseContextPairs)) {
+            this.settings.chineseContextPairs = this.settings.chineseContextPairs
+                .filter((w) => typeof w === 'string')
+                .map((w) => w.trim())
+                .filter((w) => w.length > 0);
+        } else if (typeof this.settings.chineseContextPairs === 'string') {
+            const parts = this.settings.chineseContextPairs.split(/[\,\n\r]+/);
+            this.settings.chineseContextPairs = parts.map((w) => w.trim()).filter((w) => w.length > 0);
+        } else {
+            this.settings.chineseContextPairs = [];
         }
 
         console.log("✅ Settings validated");
@@ -1881,6 +2251,12 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         data.settings = this.settings;
         await this.saveData(data);
         if (shouldRecalcStats) {
+            // Ensure the correct language tools are ready before recalculation
+            try {
+                await this.languageManager.ensureLanguageLoaded(this.settings.language);
+            } catch (e) {
+                console.warn('Language tools not fully loaded, continuing with recalculation:', e);
+            }
             await this.collectAllStats();
         } else {
             this.updateFilteredStats();
@@ -1945,7 +2321,18 @@ var WordStatsPlugin = class extends import_obsidian.Plugin {
         if (this.settings.enableCaching) {
             this.saveCachedStats().catch(console.error);
         }
+        try {
+            if (this._systemLanguageHandler) {
+                window.removeEventListener('languagechange', this._systemLanguageHandler);
+                this._systemLanguageHandler = null;
+            }
+        } catch {}
         console.log("🔤 Language Statistics plugin unloaded");
+    }
+
+    openManualSegmentation() {
+        const modal = new ManualChineseSegmentationModal(this.app, this);
+        modal.open();
     }
 };
 
@@ -1971,13 +2358,33 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
             .setName(this.t("settings_language"))
             .setDesc(this.t("settings_languageDesc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("russian", "🇷🇺 Русский")
-                .addOption("english", "🇺🇸 English")
-                .addOption("chinese", "🇨🇳 中文")
+                .addOption("russian", "RU Русский")
+                .addOption("english", "EN English")
+                .addOption("chinese", "ZH 中文")
                 .setValue(this.plugin.settings.language)
                 .onChange(async (value) => {
                     this.plugin.settings.language = value;
                     await this.plugin.saveSettings(true);
+                }));
+
+        // Follow system language
+        new import_obsidian.Setting(containerEl)
+            .setName(this.t("settings_followSystemLanguage"))
+            .setDesc(this.t("settings_followSystemLanguageDesc"))
+            .addToggle((toggle) => toggle
+                .setValue(!!this.plugin.settings.followSystemLanguage)
+                .onChange(async (value) => {
+                    this.plugin.settings.followSystemLanguage = !!value;
+                    if (value) {
+                        // Apply detected language immediately
+                        const detected = this.plugin.detectDefaultLanguage();
+                        if (["russian","english","chinese"].includes(detected)) {
+                            this.plugin.settings.language = detected;
+                        }
+                        await this.plugin.saveSettings(true);
+                    } else {
+                        await this.plugin.saveSettings(false);
+                    }
                 }));
 
         // Minimum word length
@@ -2049,25 +2456,124 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
             .addButton(button => button
                 .setButtonText("📈 " + this.t("settings_expectedStats"))
                 .onClick(() => this.showExpectedStats()));
+        // Language-specific sections
+        if (this.plugin.settings.language === 'chinese') {
+            containerEl.createEl("h3", { text: this.t("settings_chineseSection") });
 
-        // Chinese segmentation mode
-        new import_obsidian.Setting(containerEl)
-            .setName(this.t("settings_chineseSegmentation"))
-            .setDesc(this.t("settings_chineseSegmentationDesc"))
-            .addDropdown((dropdown) => dropdown
-                .addOption("segmentit", this.t("segmentation_segmentit"))
-                .addOption("dictionary", this.t("segmentation_dictionary"))
-                .setValue(this.plugin.settings.chineseSegmentation || 'segmentit')
-                .onChange(async (value) => {
-                    this.plugin.settings.chineseSegmentation = value;
-                    // Reload dictionaries/segmenter to apply the new mode
-                    try {
-                        await this.plugin.languageManager.reloadDictionaries();
-                    } catch (e) {
-                        console.warn('Failed to reload dictionaries after segmentation mode change', e);
-                    }
-                    await this.plugin.saveSettings(true);
-                }));
+            // Chinese segmentation mode
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_chineseSegmentation"))
+                .setDesc(this.t("settings_chineseSegmentationDesc"))
+                .addDropdown((dropdown) => dropdown
+                    .addOption("segmentit", this.t("segmentation_segmentit"))
+                    .addOption("dictionary", this.t("segmentation_dictionary"))
+                    .setValue(this.plugin.settings.chineseSegmentation || 'segmentit')
+                    .onChange(async (value) => {
+                        this.plugin.settings.chineseSegmentation = value;
+                        // Reload dictionaries/segmenter to apply the new mode
+                        try {
+                            await this.plugin.languageManager.reloadDictionaries();
+                        } catch (e) {
+                            console.warn('Failed to reload dictionaries after segmentation mode change', e);
+                        }
+                        await this.plugin.saveSettings(true);
+                    }));
+
+            // Manual Chinese segmentation session
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_manualSegmentation"))
+                .setDesc(this.t("settings_manualSegmentationDesc"))
+                .addButton(button => button
+                    .setButtonText("✂️ " + this.t("settings_manualSegmentation"))
+                    .onClick(() => {
+                        try {
+                            this.plugin.openManualSegmentation();
+                        } catch (e) {
+                            console.error('Failed to open manual segmentation modal', e);
+                            new import_obsidian.Notice("❌ " + this.t("errorRefreshing"));
+                        }
+                    }));
+
+            // Custom Chinese words
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_chineseCustomWords"))
+                .setDesc(this.t("settings_chineseCustomWordsDesc"))
+                .addTextArea((text) => text
+                    .setPlaceholder(this.t("settings_chineseCustomWordsPlaceholder"))
+                    .setValue(Array.isArray(this.plugin.settings.chineseCustomWords) ? this.plugin.settings.chineseCustomWords.join("\n") : "")
+                    .onChange(async (value) => {
+                        const parts = value.split(/[\n,\r]+/).map((s) => s.trim()).filter((s) => s.length > 0);
+                        this.plugin.settings.chineseCustomWords = parts;
+                        try {
+                            // Reapply custom words
+                            await this.plugin.languageManager.reloadDictionaries();
+                        } catch (e) {
+                            console.warn('Failed to reload dictionaries after custom words change', e);
+                        }
+                        await this.plugin.saveSettings(true);
+                    }));
+
+            // Context heuristics toggle (verb-object merges)
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_cnContextHeuristics"))
+                .setDesc(this.t("settings_cnContextHeuristicsDesc"))
+                .addToggle((toggle) => toggle
+                    .setValue(!!this.plugin.settings.chineseContextHeuristics)
+                    .onChange(async (value) => {
+                        this.plugin.settings.chineseContextHeuristics = !!value;
+                        await this.plugin.saveSettings(true);
+                    }));
+
+            // Adjectival VO+的 toggle
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_cnAdjectivalHeuristics"))
+                .setDesc(this.t("settings_cnAdjectivalHeuristicsDesc"))
+                .addToggle((toggle) => toggle
+                    .setValue(!!this.plugin.settings.chineseAdjectivalHeuristics)
+                    .onChange(async (value) => {
+                        this.plugin.settings.chineseAdjectivalHeuristics = !!value;
+                        await this.plugin.saveSettings(true);
+                    }));
+
+            // Custom VO pairs
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_cnContextPairs"))
+                .setDesc(this.t("settings_cnContextPairsDesc"))
+                .addTextArea((text) => text
+                    .setPlaceholder(this.t("settings_cnContextPairsPlaceholder"))
+                    .setValue(Array.isArray(this.plugin.settings.chineseContextPairs) ? this.plugin.settings.chineseContextPairs.join("\n") : "")
+                    .onChange(async (value) => {
+                        const parts = value.split(/[\n,\r]+/).map((s) => s.trim()).filter((s) => s.length > 0);
+                        this.plugin.settings.chineseContextPairs = parts;
+                        try {
+                            await this.plugin.languageManager.reloadDictionaries();
+                        } catch (e) {
+                            console.warn('Failed to reload dictionaries after custom pairs change', e);
+                        }
+                        await this.plugin.saveSettings(true);
+                    }));
+
+            // Segmentation preview panel
+            containerEl.createEl("h3", { text: this.t("settings_cnPreview") });
+            const previewWrap = containerEl.createEl("div", { cls: "word-stats-cn-preview" });
+            const input = previewWrap.createEl("textarea", { cls: "word-stats-cn-preview-input", attr: { rows: '3', placeholder: this.t("settings_cnPreviewPlaceholder") } });
+            const actions = previewWrap.createEl("div", { cls: "word-stats-cn-preview-actions" });
+            const btnOn = actions.createEl("button", { cls: "word-stats-btn word-stats-btn-primary", text: this.t("settings_cnPreviewOn") });
+            const btnOff = actions.createEl("button", { cls: "word-stats-btn", text: this.t("settings_cnPreviewOff") });
+            const out = previewWrap.createEl("pre", { cls: "word-stats-cn-preview-output" });
+
+            const runPreview = async (enableHeur: boolean) => {
+                try { await this.plugin.languageManager.ensureLanguageLoaded('chinese'); } catch {}
+                const txt = input.value || '';
+                const seg = this.plugin.languageManager.chineseSegmenter.segment(txt, {
+                    contextHeuristics: enableHeur,
+                    adjectivalHeuristics: enableHeur && !!this.plugin.settings.chineseAdjectivalHeuristics
+                });
+                out.setText(Array.isArray(seg) ? seg.join(' | ') : String(seg));
+            };
+            btnOn.addEventListener('click', () => runPreview(true));
+            btnOff.addEventListener('click', () => runPreview(false));
+        }
 
         // Validate dictionaries
         new import_obsidian.Setting(containerEl)
@@ -2137,16 +2643,23 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
                     }
                 }));
 
-        // Create test file
-        new import_obsidian.Setting(containerEl)
-            .setName(this.t("settings_createTestFile"))
-            .setDesc(this.t("settings_createTestFileDesc"))
-            .addButton(button => button
-                .setButtonText("📝 " + this.t("settings_createTestFile"))
-                .onClick(() => this.createLemmatizationTestFile()));
-
         // Content Filtering
         containerEl.createEl("h3", { text: this.t("settings_contentFiltering") });
+
+        // Network timeout setting
+        new import_obsidian.Setting(containerEl)
+            .setName(this.t("settings_networkTimeout"))
+            .setDesc(this.t("settings_networkTimeoutDesc"))
+            .addText((text) => text
+                .setPlaceholder("3000")
+                .setValue(String(this.plugin.settings.networkTimeoutMs || 10000))
+                .onChange(async (value) => {
+                    const numValue = Number(value);
+                    if (!isNaN(numValue)) {
+                        this.plugin.settings.networkTimeoutMs = Math.max(1000, Math.min(60000, Math.floor(numValue)));
+                        await this.plugin.saveSettings(false);
+                    }
+                }));
 
         const contentSettings = [
             { key: "ignoreMarkdownSyntax", name: this.t("settings_ignoreMarkdownSyntax"), desc: this.t("settings_ignoreMarkdownSyntaxDesc") },
@@ -2154,7 +2667,9 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
             { key: "ignoreCodeBlocks", name: this.t("settings_ignoreCodeBlocks"), desc: this.t("settings_ignoreCodeBlocksDesc") },
             { key: "ignoreFrontmatter", name: this.t("settings_ignoreFrontmatter"), desc: this.t("settings_ignoreFrontmatterDesc") },
             { key: "ignoreMathBlocks", name: this.t("settings_ignoreMathBlocks"), desc: this.t("settings_ignoreMathBlocksDesc") },
-            { key: "ignoreTags", name: this.t("settings_ignoreTags"), desc: this.t("settings_ignoreTagsDesc") }
+            { key: "ignoreTags", name: this.t("settings_ignoreTags"), desc: this.t("settings_ignoreTagsDesc") },
+            { key: "ignorePrepositions", name: this.t("settings_ignorePrepositions"), desc: this.t("settings_ignorePrepositionsDesc") },
+            { key: "preferLocalDictionaries", name: this.t("settings_preferLocalDictionaries"), desc: this.t("settings_preferLocalDictionariesDesc") }
         ];
 
         contentSettings.forEach((setting) => {
@@ -2168,6 +2683,25 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
                         await this.plugin.saveSettings(true);
                     }));
         });
+
+        if (this.plugin.settings.language === 'russian') {
+            containerEl.createEl("h3", { text: this.t("settings_russianSection") });
+            // Advanced Russian fallback option
+            new import_obsidian.Setting(containerEl)
+                .setName(this.t("settings_russianAdvancedFallback"))
+                .setDesc(this.t("settings_russianAdvancedFallbackDesc"))
+                .addToggle((toggle) => toggle
+                    .setValue(!!this.plugin.settings.russianAdvancedFallback)
+                    .onChange(async (value) => {
+                        this.plugin.settings.russianAdvancedFallback = !!value;
+                        try {
+                            // Apply option immediately
+                            this.plugin.languageManager.applyOptions();
+                        } catch {}
+                        // Recalculate stats so users immediately see effect of rules
+                        await this.plugin.saveSettings(true);
+                    }));
+        }
     }
 
     async createLemmatizationTestFile() {
@@ -2275,7 +2809,17 @@ Note: The plugin will only count the full poem in the selected language, ignorin
             message += `  ${this.t("settings_languageStats")}: ${stat.method}\n`;
             message += `  ${this.t("status")}: ${stat.status}\n`;
             message += `  ${this.t("entries")}: ${stat.entries}\n`;
-            message += `  ${this.t("description")}: ${stat.description}\n\n`;
+            message += `  ${this.t("description")}: ${stat.description}\n`;
+            if (lang === 'russian' && stat.counters) {
+                message += `\n  ${this.t('settings_diagnostics')}:\n`;
+                message += `    • ${this.t('diag_dictionary')}: ${stat.counters.dictionary || 0}\n`;
+                message += `    • ${this.t('diag_ruVerb')}: ${stat.counters.ruVerb || 0}\n`;
+                message += `    • ${this.t('diag_ruPartGer')}: ${stat.counters.ruPartGer || 0}\n`;
+                message += `    • ${this.t('diag_ruAdj')}: ${stat.counters.ruAdj || 0}\n`;
+                message += `    • ${this.t('diag_ruNoun')}: ${stat.counters.ruNoun || 0}\n`;
+                message += `    • ${this.t('diag_ruFallback')}: ${stat.counters.ruFallback || 0}\n`;
+            }
+            message += `\n`;
         }
         
         const modal = new import_obsidian.Modal(this.plugin.app);
@@ -2421,3 +2965,191 @@ Note: The plugin will only count the full poem in the selected language, ignorin
 var word_stats_default = WordStatsPlugin;
 
 module.exports = word_stats_default;
+
+// Modal for manual Chinese segmentation session
+class ManualChineseSegmentationModal extends import_obsidian.Modal {
+    constructor(app, plugin) {
+        super(app);
+        this.plugin = plugin;
+        this.tokens = [];
+        this.selected = new Set();
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        this.titleEl.setText(TRANSLATIONS[this.plugin.settings.language].settings_manualSegmentation);
+
+        contentEl.empty();
+        contentEl.addClass('manual-seg-container');
+
+    const input = contentEl.createEl('textarea', { cls: 'manual-seg-input', attr: { rows: '6', placeholder: TRANSLATIONS[this.plugin.settings.language].ms_placeholder } });
+
+        const controls = contentEl.createEl('div', { cls: 'manual-seg-actions' });
+    const btnSegment = controls.createEl('button', { cls: 'word-stats-btn word-stats-btn-primary', text: `🔎 ${TRANSLATIONS[this.plugin.settings.language].ms_segment}` });
+    const btnMerge = controls.createEl('button', { cls: 'word-stats-btn', text: `🔗 ${TRANSLATIONS[this.plugin.settings.language].ms_merge}` });
+    const btnSplit = controls.createEl('button', { cls: 'word-stats-btn', text: `🔪 ${TRANSLATIONS[this.plugin.settings.language].ms_split}` });
+    const btnAdd = controls.createEl('button', { cls: 'word-stats-btn', text: `➕ ${TRANSLATIONS[this.plugin.settings.language].ms_add}` });
+    const btnClear = controls.createEl('button', { cls: 'word-stats-btn', text: `🧹 ${TRANSLATIONS[this.plugin.settings.language].ms_clear}` });
+
+        const chipBox = contentEl.createEl('div', { cls: 'manual-seg-chips' });
+
+        const renderChips = () => {
+            chipBox.empty();
+            this.tokens.forEach((t, idx) => {
+                const chip = chipBox.createEl('span', { cls: 'manual-seg-chip', text: t });
+                if (this.selected.has(idx)) chip.addClass('selected');
+                chip.addEventListener('click', () => {
+                    if (this.selected.has(idx)) this.selected.delete(idx); else this.selected.add(idx);
+                    renderChips();
+                });
+            });
+        };
+
+        const doSegment = async () => {
+            try {
+                await this.plugin.languageManager.ensureLanguageLoaded('chinese');
+            } catch {}
+            const txt = input.value || '';
+            const seg = this.plugin.languageManager.chineseSegmenter.segment(txt);
+            this.tokens = Array.isArray(seg) ? seg : [];
+            this.selected.clear();
+            renderChips();
+        };
+
+        btnSegment.addEventListener('click', doSegment);
+        btnClear.addEventListener('click', () => { input.value = ''; this.tokens = []; this.selected.clear(); renderChips(); });
+        btnMerge.addEventListener('click', () => {
+            if (this.selected.size === 0) return;
+            const indices = Array.from(this.selected).sort((a,b)=>a-b);
+            const first = indices[0];
+            const last = indices[indices.length-1];
+            // Only merge contiguous range; if gaps exist, still join by order
+            const phrase = indices.map(i => this.tokens[i] || '').join('');
+            // Replace range [first..last] with phrase
+            const newTokens = [];
+            for (let i=0;i<this.tokens.length;i++) {
+                if (i === first) { newTokens.push(phrase); }
+                if (i > first && i <= last) continue;
+                if (i < first || i > last) newTokens.push(this.tokens[i]);
+            }
+            this.tokens = newTokens;
+            this.selected.clear();
+            // Select the merged token
+            this.selected.add(first);
+            renderChips();
+        });
+        btnSplit.addEventListener('click', () => {
+            if (this.selected.size === 0) return;
+            const indices = Array.from(this.selected).sort((a,b)=>a-b);
+            let offset = 0;
+            const newTokens = [...this.tokens];
+            for (const idx of indices) {
+                const realIdx = idx + offset;
+                const tok = newTokens[realIdx];
+                if (typeof tok === 'string' && tok.length > 1) {
+                    const chars = [...tok];
+                    newTokens.splice(realIdx, 1, ...chars);
+                    offset += chars.length - 1;
+                }
+            }
+            this.tokens = newTokens;
+            this.selected.clear();
+            renderChips();
+        });
+        btnAdd.addEventListener('click', async () => {
+            if (this.selected.size === 0) return;
+            const indices = Array.from(this.selected).sort((a,b)=>a-b);
+            const phrase = indices.map(i => this.tokens[i] || '').join('');
+            if (!phrase || phrase.trim().length === 0) return;
+            const list = Array.isArray(this.plugin.settings.chineseCustomWords) ? this.plugin.settings.chineseCustomWords : [];
+            if (!list.includes(phrase)) {
+                list.push(phrase);
+                this.plugin.settings.chineseCustomWords = list;
+                try {
+                    await this.plugin.languageManager.reloadDictionaries();
+                } catch (e) {
+                    console.warn('Failed to reload after adding custom word', e);
+                }
+                await this.plugin.saveSettings(true);
+                new import_obsidian.Notice(TRANSLATIONS[this.plugin.settings.language].ms_added(phrase));
+            } else {
+                new import_obsidian.Notice(TRANSLATIONS[this.plugin.settings.language].ms_exists(phrase));
+            }
+        });
+
+        // Auto focus
+        setTimeout(() => input.focus(), 10);
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+
+// Modal to review and accept unknown words → lemmas
+class UnknownWordsModal extends import_obsidian.Modal {
+    constructor(app, plugin, language) {
+        super(app);
+        this.plugin = plugin;
+        this.language = language;
+        this.items = [];
+    }
+
+    onOpen() {
+        const { contentEl, titleEl } = this;
+        titleEl.setText(TRANSLATIONS[this.plugin.settings.language].unknown_modal_title);
+        contentEl.addClass('unknown-words-container');
+        this.render();
+    }
+
+    render() {
+        const { contentEl } = this;
+        contentEl.empty();
+        const entries = this.plugin.getUnknownEntries(this.language).sort((a,b)=>b.count-a.count);
+
+        const header = contentEl.createEl('div', { cls: 'unknown-words-header' });
+        header.createEl('div', { text: TRANSLATIONS[this.plugin.settings.language].unknown_hint, cls: 'unknown-words-hint' });
+        const actions = header.createEl('div', { cls: 'unknown-words-actions' });
+        const approveAll = actions.createEl('button', { cls: 'word-stats-btn word-stats-btn-primary', text: TRANSLATIONS[this.plugin.settings.language].unknown_approve_all });
+        const clearBtn = actions.createEl('button', { cls: 'word-stats-btn', text: TRANSLATIONS[this.plugin.settings.language].unknown_clear });
+
+        approveAll.addEventListener('click', async () => {
+            for (const it of entries) {
+                const input = this.contentEl.querySelector(`#uk_${it.word}`);
+                const lemma = (input && input.value) || it.lemma;
+                await this.plugin.addCustomMapping(this.language, it.word, lemma);
+            }
+            new import_obsidian.Notice(TRANSLATIONS[this.plugin.settings.language].unknown_added_count(entries.length));
+            this.close();
+        });
+        clearBtn.addEventListener('click', () => { this.plugin.clearUnknown(this.language); this.render(); });
+
+        if (entries.length === 0) {
+            contentEl.createEl('div', { cls: 'unknown-empty', text: TRANSLATIONS[this.plugin.settings.language].unknown_empty });
+            const close = contentEl.createEl('div', { cls: 'modal-button-container' });
+            close.createEl('button', { text: TRANSLATIONS[this.plugin.settings.language].close, cls: 'mod-cta' }).addEventListener('click', ()=>this.close());
+            return;
+        }
+
+        const list = contentEl.createEl('div', { cls: 'unknown-words-list' });
+        for (const it of entries) {
+            const row = list.createEl('div', { cls: 'unknown-row' });
+            row.createEl('span', { cls: 'unknown-count', text: `${it.count}×` });
+            row.createEl('span', { cls: 'unknown-word', text: `${it.word} =` });
+            const input = row.createEl('input', { cls: 'unknown-lemma-input' });
+            input.id = `uk_${it.word}`;
+            input.value = it.lemma || it.word;
+            const addBtn = row.createEl('button', { cls: 'word-stats-btn', text: TRANSLATIONS[this.plugin.settings.language].unknown_add });
+            addBtn.addEventListener('click', async () => {
+                await this.plugin.addCustomMapping(this.language, it.word, input.value);
+                row.remove();
+            });
+            const skipBtn = row.createEl('button', { cls: 'word-stats-btn', text: '✖' });
+            skipBtn.addEventListener('click', () => { this.plugin.unknownWords[this.language]?.delete(it.word); row.remove(); });
+        }
+
+        const footer = contentEl.createEl('div', { cls: 'modal-button-container' });
+        footer.createEl('button', { text: TRANSLATIONS[this.plugin.settings.language].close, cls: 'mod-cta' }).addEventListener('click', ()=>this.close());
+    }
+}

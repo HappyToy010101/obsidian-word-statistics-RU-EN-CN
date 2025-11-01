@@ -1,6 +1,7 @@
 {
+  "$schema": "./.vscode/schemas/package.schema.json",
   "name": "word-statistics-ru-en-cn",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Dev tooling for Obsidian plugin: Word statistics RU EN CN",
   "license": "MIT",
@@ -18,8 +19,10 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch",
-    "build": "npm run typecheck && esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js",
-    "build:watch": "esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js --watch"
+  "build": "npm run typecheck && esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js --minify",
+    "build:watch": "esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js --watch --sourcemap",
+    "dict:optimize": "node scripts/optimize-dictionaries.js",
+    "dict:stats": "node scripts/optimize-dictionaries.js --stats"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

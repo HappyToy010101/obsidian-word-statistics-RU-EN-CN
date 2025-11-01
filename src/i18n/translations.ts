@@ -22,6 +22,14 @@ export const TRANSLATIONS = {
     status: "Статус",
     entries: "Записей",
     description: "Описание",
+    unknown_badge: (n: number) => `🕵️\u200aНеизв.: ${n}`,
+    unknown_modal_title: "Неизвестные слова",
+    unknown_hint: "Проверьте пары словоформа = лемма и добавьте в словарь (можно исправить лемму перед добавлением)",
+    unknown_add: "Добавить",
+    unknown_approve_all: "Добавить все",
+    unknown_clear: "Очистить",
+    unknown_empty: "Новых слов не найдено",
+    unknown_added_count: (n: number) => `Добавлено записей: ${n}`,
     excellent_result: "ОТЛИЧНО: Лемматизация работает идеально!",
     acceptable_result: "ПРИЕМЛЕМО: Некоторые функции могут работать некорректно",
     critical_result: "КРИТИЧЕСКИ: Лемматизация сломана!",
@@ -61,6 +69,8 @@ export const TRANSLATIONS = {
     exportError: "Ошибка экспорта",
     settings_validateDictionaries: "Проверить словари",
     settings_validateDictionariesDesc: "Проверить словари: ошибки формата, дубликаты, подозрительные записи",
+    settings_preferLocalDictionaries: "Только локальные словари (без интернета)",
+    settings_preferLocalDictionariesDesc: "Не загружать словари из GitHub. Использовать локальные файлы или встроенные словари",
 
         // Settings
         settings_title: "Настройки статистики слов",
@@ -74,6 +84,8 @@ export const TRANSLATIONS = {
         settings_additionalExcludedWordsDesc: "Слова, разделенные запятыми, для дополнительного исключения",
         settings_enableCaching: "Включить кэширование",
         settings_enableCachingDesc: "Сохранять статистику между сессиями для более быстрой загрузки",
+    settings_followSystemLanguage: "Следовать системному языку",
+    settings_followSystemLanguageDesc: "Автоматически выбирать язык плагина по языку системы/браузера (уменьшает лишние загрузки словарей)",
         settings_contentFiltering: "Фильтрация контента",
         settings_ignoreMarkdownSyntax: "Игнорировать синтаксис Markdown",
         settings_ignoreMarkdownSyntaxDesc: "Исключать символы форматирования Markdown",
@@ -87,7 +99,11 @@ export const TRANSLATIONS = {
         settings_ignoreMathBlocksDesc: "Исключать математические формулы из подсчета слов",
         settings_ignoreTags: "Игнорировать теги и упоминания",
         settings_ignoreTagsDesc: "Исключать хэштеги и упоминания из подсчета слов",
+    settings_ignorePrepositions: "Игнорировать предлоги",
+    settings_ignorePrepositionsDesc: "Не учитывать предлоги/служебные слова в статистике",
         settings_languageMethods: "Методы лемматизации",
+    settings_russianSection: "Параметры русского языка",
+    settings_chineseSection: "Параметры китайского языка",
         settings_languageStats: "Статистика словарей",
         settings_languageStatsDesc: "Показать текущий статус загрузки словарей",
         settings_reloadDictionaries: "Перезагрузить словари",
@@ -99,11 +115,49 @@ export const TRANSLATIONS = {
         settings_runStrictTest: "Запустить строгий тест",
         settings_runStrictTestDesc: "Запустить комплексный тест лемматизации со строгой валидацией",
 
+    // Network timeout
+    settings_networkTimeout: "Таймаут GitHub (мс)",
+    settings_networkTimeoutDesc: "Таймаут загрузки словарей из GitHub (1000 – 60000 мс)",
+
+    // Advanced Russian fallback
+    settings_russianAdvancedFallback: "Расширенные правила лемматизации (русский)",
+    settings_russianAdvancedFallbackDesc: "Использовать компактную таблицу правил для неизвестных слов (лучше для глаголов/прилагательных)",
+
     // Chinese segmentation setting
     settings_chineseSegmentation: "Сегментация китайского",
     settings_chineseSegmentationDesc: "Выберите способ сегментации для китайского языка",
     segmentation_segmentit: "Умная (segmentit)",
     segmentation_dictionary: "Простая по словарю",
+
+        // Chinese custom words
+        settings_chineseCustomWords: "Пользовательские китайские слова",
+        settings_chineseCustomWordsDesc: "Добавьте слова/словосочетания (через запятую или с новой строки), чтобы улучшить сегментацию. Используется только для китайского.",
+    settings_chineseCustomWordsPlaceholder: "Например: 响亮, 银铃, 太阳穴\nНапример: 吃饭\n看书",
+
+        // Manual Chinese segmentation session
+        settings_manualSegmentation: "Ручная сессия сегментации (китайский)",
+        settings_manualSegmentationDesc: "Откройте инструмент для объединения/разделения токенов и добавления фраз в список пользовательских слов",
+    ms_placeholder: "Вставьте китайский текст",
+    ms_segment: "Сегментировать",
+    ms_merge: "Объединить выбранное",
+    ms_split: "Разбить на иероглифы",
+    ms_add: "Добавить в список",
+    ms_clear: "Очистить",
+    ms_added: (p: string) => `Добавлено: ${p}`,
+    ms_exists: (p: string) => `Уже есть: ${p}`,
+
+    // Chinese context heuristics and preview
+    settings_cnContextHeuristics: "Китайские контекстные эвристики",
+    settings_cnContextHeuristicsDesc: "Объединять частые пары глагол-объект (например, 吃 饭→吃饭, 看 书→看书). Требуется пересчет статистики.",
+    settings_cnAdjectivalHeuristics: "Слияние формы ‘VO+的’",
+    settings_cnAdjectivalHeuristicsDesc: "Если включено, уже объединенная пара глагол-объект + ‘的’ считается одним словом (например, ‘吃饭 的’→‘吃饭的’).",
+    settings_cnContextPairs: "Пользовательские пары глагол-объект",
+    settings_cnContextPairsDesc: "По одной паре в строке, например: 吃饭, 看书, 打电话. Используется для эвристического объединения.",
+    settings_cnContextPairsPlaceholder: "吃饭\n看书\n打电话",
+    settings_cnPreview: "Предпросмотр китайской сегментации",
+    settings_cnPreviewPlaceholder: "Вставьте китайский текст…",
+    settings_cnPreviewOn: "Предпросмотр (эвристики вкл.)",
+    settings_cnPreviewOff: "Предпросмотр (эвристики выкл.)",
 
         // Dictionary messages
         dict_loaded: "Словари загружены успешно",
@@ -111,6 +165,15 @@ export const TRANSLATIONS = {
         test_created: "Тестовый файл создан/обновлен",
         test_passed: "Тест пройден",
         test_failed: "Тест не пройден"
+        ,
+        // Diagnostics
+        settings_diagnostics: "Диагностика",
+        diag_dictionary: "Словарь",
+        diag_ruVerb: "Глагольные правила",
+        diag_ruPartGer: "Прич./деепр.",
+        diag_ruAdj: "Прилагательные",
+        diag_ruNoun: "Существительные",
+        diag_ruFallback: "Прочий фолбэк"
     },
     english: {
         title: "Word Statistics",
@@ -134,6 +197,14 @@ export const TRANSLATIONS = {
     status: "Status",
     entries: "Entries",
     description: "Description",
+    unknown_badge: (n: number) => `🕵️\u200aUnknown: ${n}`,
+    unknown_modal_title: "Unknown words",
+    unknown_hint: "Review wordform = lemma pairs and add to your dictionary (you can edit lemmas before adding)",
+    unknown_add: "Add",
+    unknown_approve_all: "Add all",
+    unknown_clear: "Clear",
+    unknown_empty: "No new unknown words",
+    unknown_added_count: (n: number) => `Added: ${n}`,
     excellent_result: "EXCELLENT: Lemmatization is working perfectly!",
     acceptable_result: "ACCEPTABLE: Some features may not work correctly",
     critical_result: "CRITICAL: Lemmatization is broken!",
@@ -173,6 +244,8 @@ export const TRANSLATIONS = {
     exportError: "Export error",
     settings_validateDictionaries: "Validate dictionaries",
     settings_validateDictionariesDesc: "Check dictionaries for format errors, duplicates, and suspicious entries",
+    settings_preferLocalDictionaries: "Use local dictionaries only (offline)",
+    settings_preferLocalDictionariesDesc: "Do not fetch dictionaries from GitHub. Use local files or embedded defaults",
 
         // Settings
         settings_title: "Word Statistics Settings",
@@ -186,6 +259,8 @@ export const TRANSLATIONS = {
         settings_additionalExcludedWordsDesc: "Comma-separated list of additional words to exclude",
         settings_enableCaching: "Enable caching",
         settings_enableCachingDesc: "Save statistics between sessions for faster loading",
+    settings_followSystemLanguage: "Follow system language",
+    settings_followSystemLanguageDesc: "Automatically choose the plugin language based on system/browser language (avoids unnecessary dictionary loads)",
         settings_contentFiltering: "Content Filtering",
         settings_ignoreMarkdownSyntax: "Ignore Markdown syntax",
         settings_ignoreMarkdownSyntaxDesc: "Exclude Markdown formatting characters",
@@ -199,7 +274,11 @@ export const TRANSLATIONS = {
         settings_ignoreMathBlocksDesc: "Exclude math formulas and equations from word count",
         settings_ignoreTags: "Ignore tags and mentions",
         settings_ignoreTagsDesc: "Exclude hashtags and mentions from word count",
+    settings_ignorePrepositions: "Ignore prepositions",
+    settings_ignorePrepositionsDesc: "Do not count prepositions/particles in statistics",
         settings_languageMethods: "Lemmatization Methods",
+    settings_russianSection: "Russian language settings",
+    settings_chineseSection: "Chinese language settings",
         settings_languageStats: "Dictionary Statistics",
         settings_languageStatsDesc: "Show current dictionary loading status",
         settings_reloadDictionaries: "Reload Dictionaries",
@@ -211,11 +290,49 @@ export const TRANSLATIONS = {
         settings_runStrictTest: "Run Strict Test",
         settings_runStrictTestDesc: "Run comprehensive lemmatization test with strict validation",
 
+    // Network timeout
+    settings_networkTimeout: "GitHub timeout (ms)",
+    settings_networkTimeoutDesc: "Dictionary download timeout for GitHub requests (1000 - 60000 ms)",
+
+    // Advanced Russian fallback
+    settings_russianAdvancedFallback: "Advanced Russian fallback rules",
+    settings_russianAdvancedFallbackDesc: "Use a compact suffix rule table for unknown words (better verbs/adjectives)",
+
     // Chinese segmentation setting
     settings_chineseSegmentation: "Chinese segmentation",
     settings_chineseSegmentationDesc: "Choose segmentation engine for Chinese",
     segmentation_segmentit: "Smart (segmentit)",
     segmentation_dictionary: "Simple dictionary",
+
+        // Chinese custom words
+        settings_chineseCustomWords: "Custom Chinese words",
+        settings_chineseCustomWordsDesc: "Add words/phrases (comma or newline separated) to improve segmentation. Used only for Chinese.",
+    settings_chineseCustomWordsPlaceholder: "e.g.: 响亮, 银铃, 太阳穴\nExample: 吃饭\n看书",
+
+        // Manual Chinese segmentation session
+        settings_manualSegmentation: "Manual segmentation session (Chinese)",
+        settings_manualSegmentationDesc: "Open a tool to merge/split tokens and add phrases to custom words",
+    ms_placeholder: "Paste Chinese text here",
+    ms_segment: "Segment",
+    ms_merge: "Merge selection",
+    ms_split: "Split to chars",
+    ms_add: "Add as custom word",
+    ms_clear: "Clear",
+    ms_added: (p: string) => `Added: ${p}`,
+    ms_exists: (p: string) => `Already exists: ${p}`,
+
+    // Chinese context heuristics and preview
+    settings_cnContextHeuristics: "Chinese context heuristics",
+    settings_cnContextHeuristicsDesc: "Merge common verb-object pairs (e.g., 吃 饭→吃饭, 看 书→看书). Recalculation required.",
+    settings_cnAdjectivalHeuristics: "VO+的 adjectival merge",
+    settings_cnAdjectivalHeuristicsDesc: "If enabled, a merged VO followed by ‘的’ is treated as a single token (e.g., ‘吃饭 的’→‘吃饭的’).",
+    settings_cnContextPairs: "Custom verb-object pairs",
+    settings_cnContextPairsDesc: "One per line, e.g.: 吃饭, 看书, 打电话. Used for heuristic merges.",
+    settings_cnContextPairsPlaceholder: "吃饭\n看书\n打电话",
+    settings_cnPreview: "Chinese segmentation preview",
+    settings_cnPreviewPlaceholder: "Paste Chinese text here…",
+    settings_cnPreviewOn: "Preview (heuristics ON)",
+    settings_cnPreviewOff: "Preview (heuristics OFF)",
 
         // Dictionary messages
         dict_loaded: "Dictionaries loaded successfully",
@@ -223,6 +340,15 @@ export const TRANSLATIONS = {
         test_created: "Test file created/updated",
         test_passed: "Test passed",
         test_failed: "Test failed"
+        ,
+        // Diagnostics
+        settings_diagnostics: "Diagnostics",
+        diag_dictionary: "Dictionary",
+        diag_ruVerb: "Verb rules",
+        diag_ruPartGer: "Participles/Gerunds",
+        diag_ruAdj: "Adjectives",
+        diag_ruNoun: "Nouns",
+        diag_ruFallback: "Other fallback"
     },
     chinese: {
         title: "单词统计",
@@ -246,6 +372,14 @@ export const TRANSLATIONS = {
     status: "状态",
     entries: "条目",
     description: "描述",
+    unknown_badge: (n: number) => `🕵️\u200a新词: ${n}`,
+    unknown_modal_title: "未收录的词",
+    unknown_hint: "检查 词形 = 词元，确认后添加到词典（可先修改词元）",
+    unknown_add: "添加",
+    unknown_approve_all: "全部添加",
+    unknown_clear: "清空",
+    unknown_empty: "没有新的未收录词",
+    unknown_added_count: (n: number) => `已添加：${n}`,
     excellent_result: "优秀：词形还原工作完美！",
     acceptable_result: "可接受：某些功能可能无法正常工作",
     critical_result: "严重：词形还原已损坏！",
@@ -285,6 +419,8 @@ export const TRANSLATIONS = {
     exportError: "导出错误",
     settings_validateDictionaries: "验证字典",
     settings_validateDictionariesDesc: "检查字典的格式错误、重复项和可疑条目",
+    settings_preferLocalDictionaries: "仅使用本地词典（离线）",
+    settings_preferLocalDictionariesDesc: "不从 GitHub 下载词典。使用本地文件或内置词典",
 
         // Settings
         settings_title: "单词统计设置",
@@ -298,6 +434,8 @@ export const TRANSLATIONS = {
         settings_additionalExcludedWordsDesc: "逗号分隔的额外排除单词列表",
         settings_enableCaching: "启用缓存",
         settings_enableCachingDesc: "在会话之间保存统计信息以便快速加载",
+    settings_followSystemLanguage: "跟随系统语言",
+    settings_followSystemLanguageDesc: "根据系统/浏览器语言自动选择插件语言（避免不必要的字典加载）",
         settings_contentFiltering: "内容过滤",
         settings_ignoreMarkdownSyntax: "忽略 Markdown 语法",
         settings_ignoreMarkdownSyntaxDesc: "排除 Markdown 格式字符",
@@ -311,7 +449,11 @@ export const TRANSLATIONS = {
         settings_ignoreMathBlocksDesc: "从单词计数中排除数学公式和方程",
         settings_ignoreTags: "忽略标签和提及",
         settings_ignoreTagsDesc: "从单词计数中排除标签和提及",
+    settings_ignorePrepositions: "忽略介词/助词",
+    settings_ignorePrepositionsDesc: "统计中不计入介词/助词（如 在、对、把、被、的 等）",
         settings_languageMethods: "词形还原方法",
+    settings_russianSection: "俄语设置",
+    settings_chineseSection: "中文设置",
         settings_languageStats: "字典统计",
         settings_languageStatsDesc: "显示当前字典加载状态",
         settings_reloadDictionaries: "重新加载字典",
@@ -323,11 +465,49 @@ export const TRANSLATIONS = {
         settings_runStrictTest: "运行严格测试",
         settings_runStrictTestDesc: "运行具有严格验证的综合词形还原测试",
 
+    // Network timeout
+    settings_networkTimeout: "GitHub 超时（毫秒）",
+    settings_networkTimeoutDesc: "从 GitHub 下载字典的超时时间（1000 - 60000 毫秒）",
+
+    // Advanced Russian fallback
+    settings_russianAdvancedFallback: "高级俄语回退规则",
+    settings_russianAdvancedFallbackDesc: "对未知词使用紧凑的后缀规则表（更适合动词/形容词）",
+
     // Chinese segmentation setting
     settings_chineseSegmentation: "中文分词方式",
     settings_chineseSegmentationDesc: "选择中文分词引擎",
     segmentation_segmentit: "智能（segmentit）",
     segmentation_dictionary: "简单字典",
+
+        // Chinese custom words
+        settings_chineseCustomWords: "自定义中文词汇",
+        settings_chineseCustomWordsDesc: "添加词语/短语（逗号或换行分隔）以改进分词，仅在中文时使用。",
+        settings_chineseCustomWordsPlaceholder: "例如：响亮、银铃、太阳穴\n示例：自定义词汇一\n自定义词汇二",
+
+        // Manual Chinese segmentation session
+        settings_manualSegmentation: "手动分词会话（中文）",
+        settings_manualSegmentationDesc: "打开工具以合并/拆分分词，并将短语加入自定义词",
+    ms_placeholder: "粘贴中文文本",
+    ms_segment: "分词",
+    ms_merge: "合并所选",
+    ms_split: "拆成字",
+    ms_add: "加入自定义词",
+    ms_clear: "清空",
+    ms_added: (p: string) => `✅ 已添加：${p}`,
+    ms_exists: (p: string) => `ℹ️ 已存在：${p}`,
+
+    // Chinese context heuristics and preview
+    settings_cnContextHeuristics: "中文上下文启发式",
+    settings_cnContextHeuristicsDesc: "合并常见动宾搭配（如 吃 饭→吃饭、看 书→看书）。需要重新统计。",
+    settings_cnAdjectivalHeuristics: "动宾+的 形容用法",
+    settings_cnAdjectivalHeuristicsDesc: "启用时，已合并的动宾短语后跟“的”将整体视为一个词（如 ‘吃饭 的’→‘吃饭的’）。",
+    settings_cnContextPairs: "自定义动宾搭配",
+    settings_cnContextPairsDesc: "每行一个，例如：吃饭、看书、打电话。用于启发式合并。",
+    settings_cnContextPairsPlaceholder: "吃饭\n看书\n打电话",
+    settings_cnPreview: "中文分词预览",
+    settings_cnPreviewPlaceholder: "在此粘贴中文文本…",
+    settings_cnPreviewOn: "预览（启发式开）",
+    settings_cnPreviewOff: "预览（启发式关）",
 
         // Dictionary messages
         dict_loaded: "字典加载成功",
@@ -335,5 +515,14 @@ export const TRANSLATIONS = {
         test_created: "测试文件已创建/更新",
         test_passed: "测试通过",
         test_failed: "测试失败"
+        ,
+        // Diagnostics
+        settings_diagnostics: "诊断",
+        diag_dictionary: "字典",
+        diag_ruVerb: "动词规则",
+        diag_ruPartGer: "分词/副动词",
+        diag_ruAdj: "形容词",
+        diag_ruNoun: "名词",
+        diag_ruFallback: "其他回退"
     }
 } as const;

@@ -1,17 +1,34 @@
 // @ts-nocheck
 import { DICTIONARY_URLS, DEFAULT_DICTIONARIES } from "./constants";
 
+// Simple in-memory dictionary text cache per language (speeds language swapping within a session)
+const DICT_TEXT_CACHE: Map<string, string> = new Map();
+
 /**
  * Lemmatizer class for word form reduction to base forms
  * Supports loading dictionaries from GitHub or using fallback defaults
  */
 export class Lemmatizer {
     /** Initialize a new Lemmatizer instance */
-    constructor() {
+    constructor(plugin?: any) {
+        this.plugin = plugin || null;
         /** @type {Map<string, string>} Map of word forms to lemmas */
         this.lemmas = new Map();
         /** @type {boolean} Whether the dictionary has been successfully loaded */
         this.loaded = false;
+        /** @type {string|null} Language of this lemmatizer */
+        this.language = null;
+        /** @type {{advancedFallback?: boolean}} Options that influence lemmatization */
+        this.options = { advancedFallback: false };
+        /** @type {{[k:string]: number}} Diagnostics counters for rule application */
+        this.counters = {
+            dictionary: 0,
+            ruVerb: 0,
+            ruPartGer: 0,
+            ruAdj: 0,
+            ruNoun: 0,
+            ruFallback: 0
+        };
     }
 
     async loadDictionary(language) {
@@ -22,10 +39,41 @@ export class Lemmatizer {
                 throw new Error(`Invalid language: ${language}`);
             }
             
-            // Try to load from GitHub first with timeout
+            // Prefer LOCAL dictionary file if present in the plugin folder inside the vault
+            try {
+                const localText = await this.readLocalDictionary(language);
+                if (localText) {
+                    this.parseDictionary(localText);
+                    await this.loadCustomAdditions(language);
+                    // Refresh cache with local content for determinism
+                    DICT_TEXT_CACHE.set(language, localText);
+                    this.loaded = true;
+                    this.language = language;
+                    console.log(`✅ ${language} dictionary loaded from LOCAL plugin folder`);
+                    return;
+                }
+            } catch (e) {
+                console.warn(`Local ${language} dictionary not available or failed to read:`, e);
+            }
+
+            // If we have cached full dictionary text, reuse it
+            const cachedText = DICT_TEXT_CACHE.get(language);
+            if (cachedText) {
+                this.parseDictionary(cachedText);
+                await this.loadCustomAdditions(language);
+                this.loaded = true;
+                this.language = language;
+                console.log(`⚡ Used cached ${language} dictionary text (${this.lemmas.size} entries)`);
+                return;
+            }
+
+            // Try to load from GitHub first with timeout (unless user prefers local-only)
+            const preferLocalOnly = !!this.plugin?.settings?.preferLocalDictionaries;
+            if (!preferLocalOnly) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                const timeoutMs = Math.max(1000, Math.min(60000, (this.plugin?.settings?.networkTimeoutMs ?? 10000)));
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 
                 const response = await fetch(DICTIONARY_URLS[language], {
                     signal: controller.signal
@@ -38,7 +86,12 @@ export class Lemmatizer {
                         throw new Error(`Empty dictionary content for ${language}`);
                     }
                     this.parseDictionary(content);
+                    await this.loadCustomAdditions(language);
+                    // Cache text for fast reloads
+                    DICT_TEXT_CACHE.set(language, content);
                     console.log(`✅ ${language} dictionary loaded from GitHub: ${this.lemmas.size} entries`);
+                    // Persist fetched dictionary locally for offline reuse (only current language)
+                    try { await this.saveLocalDictionary(language, content); } catch {}
                     this.loaded = true;
                     return;
                 } else {
@@ -51,6 +104,9 @@ export class Lemmatizer {
                     console.log(`⚠️ Could not load ${language} dictionary from GitHub (${error.message}), using default`);
                 }
             }
+            } else {
+                console.log(`🌐 Online fetch disabled by settings, using local/default for ${language}`);
+            }
 
             // Fallback to default dictionary
             if (!DEFAULT_DICTIONARIES[language]) {
@@ -58,6 +114,9 @@ export class Lemmatizer {
             }
             
             this.parseDictionary(DEFAULT_DICTIONARIES[language]);
+            await this.loadCustomAdditions(language);
+            // Cache default text, too
+            DICT_TEXT_CACHE.set(language, DEFAULT_DICTIONARIES[language]);
             console.log(`✅ ${language} default dictionary loaded: ${this.lemmas.size} entries`);
             this.loaded = true;
             
@@ -66,6 +125,107 @@ export class Lemmatizer {
             this.loaded = false;
             this.lemmas.clear();
             throw new Error(`Failed to load ${language} dictionary: ${error.message}`);
+        }
+        // Save language after successful load
+        this.language = language;
+    }
+
+    /** Load and merge user custom lemma additions from a separate file (non-destructive) */
+    async loadCustomAdditions(language: string) {
+        try {
+            if (!this.plugin || !this.plugin.app?.vault?.adapter) return;
+            const id = this.plugin.manifest?.id || 'word-statistics-ru-en-cn';
+            const folder = `.obsidian/plugins/${id}/dictionaries`;
+            const fileMap: Record<string, string> = {
+                russian: `${folder}/custom_russian_lemmas.txt`,
+                english: `${folder}/custom_english_lemmas.txt`
+            };
+            const path = fileMap[language];
+            if (!path) return;
+            let exists = false;
+            try {
+                const stat = await this.plugin.app.vault.adapter.stat(path);
+                exists = !!(stat && stat.exists);
+            } catch {}
+            if (!exists) return;
+            const text = await this.plugin.app.vault.adapter.read(path);
+            if (!text || typeof text !== 'string') return;
+            const lines = text.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                const [wf, lm] = trimmed.split('=');
+                if (wf && lm) {
+                    const w = wf.trim().toLowerCase();
+                    const l = lm.trim().toLowerCase();
+                    if (w && l) this.lemmas.set(w, l);
+                }
+            }
+            console.log(`➕ Merged custom ${language} lemmas (${lines.length} lines)`);
+        } catch (e) {
+            console.warn('Custom additions load skipped:', e);
+        }
+    }
+
+    /** Save dictionary text into the local plugin folder for the given language */
+    async saveLocalDictionary(language: string, content: string): Promise<void> {
+        try {
+            if (!this.plugin || !this.plugin.app?.vault?.adapter) return;
+            const id = this.plugin.manifest?.id || 'word-statistics-ru-en-cn';
+            const folder = `.obsidian/plugins/${id}/dictionaries`;
+            try {
+                // Ensure folder exists
+                await this.plugin.app.vault.adapter.mkdir(folder);
+            } catch {}
+            const fileMap: Record<string, string> = {
+                russian: `${folder}/russian_lemmas.txt`,
+                english: `${folder}/english_lemmas.txt`,
+                chinese: `${folder}/chinese_words.txt`
+            };
+            const path = fileMap[language];
+            if (!path) return;
+            await this.plugin.app.vault.adapter.write(path, content);
+            console.log(`💾 Saved ${language} dictionary locally for offline use`);
+        } catch {
+            // non-fatal
+        }
+    }
+
+    /** Try read dictionary from local plugin folder inside the vault (non-blocking fallback) */
+    async readLocalDictionary(language: string): Promise<string|null> {
+        try {
+            if (!this.plugin || !this.plugin.app?.vault?.adapter) return null;
+            const id = this.plugin.manifest?.id || 'word-statistics-ru-en-cn';
+            const fileMap: Record<string, string> = {
+                russian: `.obsidian/plugins/${id}/dictionaries/russian_lemmas.txt`,
+                english: `.obsidian/plugins/${id}/dictionaries/english_lemmas.txt`,
+                chinese: `.obsidian/plugins/${id}/dictionaries/chinese_words.txt`
+            };
+            const path = fileMap[language];
+            if (!path) return null;
+            // Prefer a direct read attempt (some adapters may not support stat reliably)
+            try {
+                const text = await this.plugin.app.vault.adapter.read(path);
+                if (typeof text === 'string' && text.trim().length > 0) {
+                    console.log(`📚 Found LOCAL ${language} dictionary at ${path} (${text.length} chars)`);
+                    return text;
+                }
+            } catch (readErr) {
+                // Fallback: try stat+read if available
+                try {
+                    const stat = await this.plugin.app.vault.adapter.stat(path);
+                    if (stat && stat.exists) {
+                        const text2 = await this.plugin.app.vault.adapter.read(path);
+                        if (typeof text2 === 'string' && text2.trim().length > 0) {
+                            console.log(`📚 Found LOCAL ${language} dictionary via stat at ${path} (${text2.length} chars)`);
+                            return text2;
+                        }
+                    }
+                } catch {}
+            }
+            return null;
+        } catch (e) {
+            return null;
         }
     }
 
@@ -143,9 +303,27 @@ export class Lemmatizer {
         
         // Exact match
         if (this.lemmas.has(cleanWord)) {
+            try { this.counters.dictionary++; } catch {}
             return this.lemmas.get(cleanWord);
         }
         
+        // Language-specific simple fallback rules
+        if (this.language === 'russian') {
+            // Fallback behavior:
+            // - advancedFallback === true  -> advanced heuristic rules
+            // - advancedFallback === 'simple' -> simple suffix stripping
+            // - otherwise (default/false/undefined) -> NO fallback, return original
+            if (this.options?.advancedFallback === true) {
+                return this.russianAdvancedFallbackLemma(cleanWord);
+            }
+            if (this.options?.advancedFallback === 'simple') {
+                try { this.counters.ruFallback++; } catch {}
+                return this.russianFallbackLemma(cleanWord);
+            }
+            // No fallback: keep as-is so users can review/add correct lemmas
+            return cleanWord;
+        }
+
         // If no lemma found, return original word in lowercase
         return cleanWord;
     }
@@ -153,7 +331,297 @@ export class Lemmatizer {
     getStats() {
         return {
             loaded: this.loaded,
-            entries: this.lemmas.size
+            entries: this.lemmas.size,
+            counters: Object.assign({}, this.counters)
         };
+    }
+
+    // Very lightweight Russian fallback lemmatizer using common suffix stripping
+    russianFallbackLemma(w: string): string {
+        if (!w) return w;
+        // Normalize ё -> е
+        let s = w.replace(/ё/g, 'е');
+        // Handle short words quickly
+        if (s.length <= 3) return s;
+
+        // Common adjective endings
+        const adj = [
+            'ыми','ими','его','ого','ему','ому','ее','ое','ая','яя','ий','ый','ой','ая','яя','ую','юю','их','ых','ым','им','ем','им','ом'
+        ];
+        // Common noun plural/case endings
+        const noun = [
+            'ами','ями','ами','ями','ьев','ев','ов','ами','ями','ями','ами','ями','ах','ях','ам','ям','ою','ею','ью','ью','ей','ой','ам','ям',
+            'ию','ью','ью','ям','ам','ии','ии','ии','ях','ах','ам','ям','ях','ах','ам','ям','ою','ею'
+        ];
+        // Common verb endings
+        const verb = [
+            'ешь','ешься','ете','етесь','ем','емся','ут','ют','ят','ишь','ит','ите','им','или','или','ать','ять','ить','ешь','ет','ете','ем',
+            'ал','ала','ало','али','ился','алась','ались','ался','лся','ться','ться','ться','лся','лась','лось','лись'
+        ];
+
+        const strip = (arr: string[]): string | null => {
+            for (const suf of arr) {
+                if (s.length > suf.length + 1 && s.endsWith(suf)) {
+                    return s.slice(0, -suf.length);
+                }
+            }
+            return null;
+        };
+
+        let base = strip(adj) || strip(noun) || strip(verb);
+        if (base && base.length >= 3) return base;
+
+        // Final fallback: drop a single trailing vowel/soft sign if present
+        if (/[аеёиоуыэюяь]$/.test(s) && s.length > 3) {
+            return s.slice(0, -1);
+        }
+        return s;
+    }
+
+    // Advanced Russian fallback lemmatizer with verb infinitive and common noun-case recovery
+    russianAdvancedFallbackLemma(w: string): string {
+        if (!w) return w;
+        let s = w.replace(/ё/g, 'е');
+        if (s.length <= 3) return s;
+
+        // Known irregular or highly frequent alternations (very small curated set)
+        const IRREGULAR: Record<string, string> = {
+            // 3pl → infinitive
+            'идут': 'идти', 'едут': 'ехать', 'ведут': 'вести', 'могут': 'мочь', 'хотят': 'хотеть',
+            'берут': 'брать', 'пишут': 'писать', 'режут': 'резать', 'ждут': 'ждать',
+            // slang/common internet verbs often used
+            'рофлят': 'рофлить',
+            // frequent nouns/pronouns exceptions (nominative singular restoration)
+            'дверей': 'дверь',
+            'сыновьями': 'сын', 'сыновьям': 'сын', 'сыновей': 'сын', 'сыновьях': 'сын',
+            'копеек': 'копейка',
+            // numerals (compact)
+            'двух': 'два', 'двум': 'два', 'двумя': 'два',
+            'трех': 'три', 'трёх': 'три', 'трем': 'три', 'трём': 'три', 'тремя': 'три',
+            'четырех': 'четыре', 'четырёх': 'четыре', 'четырем': 'четыре', 'четырём': 'четыре', 'четырьмя': 'четыре',
+            'пяти': 'пять', 'пятью': 'пять',
+            'шести': 'шесть', 'шестью': 'шесть',
+            'семи': 'семь', 'семью': 'семь',
+            'восьми': 'восемь', 'восьмью': 'восемь',
+            'девяти': 'девять', 'девятью': 'девять',
+            'десяти': 'десять', 'десятью': 'десять',
+            // pronouns (compact)
+            'нее': 'она', 'неё': 'она',
+            'твоим': 'твой', 'твоего': 'твой', 'твоему': 'твой', 'твоем': 'твой', 'твоём': 'твой', 'твоими': 'твой', 'твоих': 'твой', 'твой': 'твой', 'твоя': 'твой', 'твое': 'твой', 'твоё': 'твой', 'твои': 'твой', 'твоей': 'твой', 'твою': 'твой',
+            'моим': 'мой', 'моего': 'мой', 'моему': 'мой', 'моем': 'мой', 'моём': 'мой', 'моими': 'мой', 'моих': 'мой', 'мой': 'мой', 'моя': 'мой', 'мое': 'мой', 'моё': 'мой', 'мои': 'мой', 'моей': 'мой', 'мою': 'мой',
+            // этот
+            'этот': 'этот', 'эта': 'этот', 'это': 'этот', 'эти': 'этот', 'этого': 'этот', 'этой': 'этот', 'этому': 'этот', 'этим': 'этот', 'этом': 'этот', 'эту': 'этот', 'этими': 'этот', 'этих': 'этот',
+            // весь
+            'весь': 'весь', 'вся': 'весь', 'всё': 'весь', 'все': 'весь',
+            'всего': 'весь', 'всей': 'весь', 'всему': 'весь', 'всем': 'весь', 'всём': 'весь', 'всех': 'весь', 'всеми': 'весь', 'всю': 'весь',
+            // свой
+            'свой': 'свой', 'своя': 'свой', 'своё': 'свой', 'свое': 'свой', 'свои': 'свой', 'своего': 'свой', 'своей': 'свой', 'своему': 'свой', 'своём': 'свой', 'своем': 'свой', 'своим': 'свой', 'своих': 'свой', 'своими': 'свой', 'свою': 'свой',
+            // такой
+            'такой': 'такой', 'такая': 'такой', 'такое': 'такой', 'такие': 'такой', 'такого': 'такой', 'такой-то': 'такой', 'такому': 'такой', 'таким': 'такой', 'таком': 'такой', 'таких': 'такой', 'такими': 'такой', 'такую': 'такой',
+            // самый и сам
+            'самый': 'самый', 'самая': 'самый', 'самое': 'самый', 'самые': 'самый', 'самого': 'самый', 'самой': 'самый', 'самому': 'самый', 'самым': 'самый', 'самом': 'самый', 'самых': 'самый', 'самыми': 'самый', 'самую': 'самый',
+            'сам': 'сам', 'сама': 'сам', 'само': 'сам', 'сами': 'сам', 'самим': 'сам', 'самих': 'сам', 'самими': 'сам', 'саму': 'сам',
+            // вопросы/местоимения (частичные)
+            'ничего': 'ничто', 'ничему': 'ничто', 'ничем': 'ничто', 'ничём': 'ничто', 'ничем-то': 'ничто',
+            'чего': 'что', 'чему': 'что', 'чем': 'что', 'чём': 'что', 'кому': 'кто', 'кого': 'кто', 'кем': 'кто', 'ком': 'кто',
+            // частые наречия, которые не надо “обрезать”
+            'прямо': 'прямо'
+        };
+        if (IRREGULAR[s]) return IRREGULAR[s];
+
+        // Helper to return and count rule usage
+        const ret = (value: string, rule: 'ruVerb'|'ruPartGer'|'ruAdj'|'ruNoun'|'ruFallback'): string => {
+            try { this.counters[rule] = (this.counters[rule] || 0) + 1; } catch {}
+            return value;
+        };
+
+        // Helper: choose infinitive ending based on last vowel in the stem and original suffix
+        const chooseInf = (stem: string, originalSuffix: string, reflexive: boolean, hint?: 'ать'|'ять'|'еть'|'ить'): string => {
+            const vowels = ['а','я','е','и','о','у','ы','ю'];
+            let lastVowel = '';
+            for (let i = stem.length - 1; i >= 0; i--) {
+                const ch = stem[i];
+                if (vowels.includes(ch)) { lastVowel = ch; break; }
+            }
+            // Heuristic special-cases before generic vowel-based choice
+            if (!hint) {
+                // Many colloquial/obscene verbs with -еб- take -ать: проебать/наебать
+                if (/еб$/.test(stem)) hint = 'ать';
+            }
+            let inf = hint || 'ить';
+            if (lastVowel === 'а') inf = 'ать';
+            else if (lastVowel === 'я') inf = 'ять';
+            else if (lastVowel === 'е') inf = 'еть';
+            else if (lastVowel === 'и' || lastVowel === 'ы') inf = 'ить';
+            else if (['ут','ют','ат','ят','ет','ешь','ем','ете'].includes(originalSuffix)) {
+                // For 1st conjugation hints, prefer -ать if we don't see a clear -ить signal
+                if (!hint) inf = (lastVowel === 'и') ? 'ить' : 'ать';
+            }
+            let res = stem + inf;
+            if (reflexive) res = res.replace(/ть$/, 'ться');
+            return res;
+        };
+
+        // Handle reflexive marker upfront
+        let hadReflexive = false;
+        if (/(ся|сь)$/.test(s)) {
+            hadReflexive = true;
+            s = s.replace(/(ся|сь)$/, '');
+        }
+
+        // Try participles and gerunds → verb infinitive
+        // Present active participles: -ущ-/-ющ- + adjective endings
+        const stripToVerbByPattern = (str: string): string | null => {
+            const tryReturn = (stem: string) => stem.length >= 2 ? (hadReflexive ? stem + 'ться' : stem + 'ть') : null;
+            // -вши / -в (прочитавши → прочитать, прочитав → прочитать)
+            if (/вши$/.test(str)) {
+                const stem = str.replace(/вши$/, '');
+                const res = tryReturn(stem);
+                if (res) return res;
+            }
+            if (/[^аеиоуыэюя]в$/.test(str) || /[аеиоуыэюя]в$/.test(str)) {
+                const stem = str.replace(/в$/, '');
+                const res = tryReturn(stem);
+                if (res) return res;
+            }
+            // -ущ-/-ющ- participles (читающий → читать)
+            if (/(у|ю)щ[а-я]*$/.test(str)) {
+                const stem = str.replace(/(у|ю)щ[а-я]*$/, '');
+                const res = tryReturn(stem);
+                if (res) return res;
+            }
+            // Passive participles: -енн-/-ённ-/-анн-/-янн- + endings
+            if (/(енн|ённ|анн|янн)[а-я]*$/.test(str)) {
+                const stem = str.replace(/(енн|ённ|анн|янн)[а-я]*$/, '');
+                const res = tryReturn(stem);
+                if (res) return res;
+            }
+            return null;
+        };
+    const fromPartGer = stripToVerbByPattern(s);
+    if (fromPartGer) return ret(fromPartGer, 'ruPartGer');
+
+        // Verb forms → infinitive
+        const verbSuffixes = ['ешь','ет','ем','ете','ют','ут','ат','ят','ишь','ит','им','ите','ал','ала','ало','али','л','нут'];
+        for (const suf of verbSuffixes) {
+            if (s.length > suf.length + 1 && s.endsWith(suf)) {
+                let stem = s.slice(0, -suf.length);
+                if (stem.length >= 2) {
+                    // Special: -нут (крикнут → крикнуть)
+                    if (suf === 'нут') {
+                        const res = stem + 'нуть';
+                        return ret(hadReflexive ? res.replace(/ть$/, 'ться') : res, 'ruVerb');
+                    }
+                    // Consonant alternations before -ут/-ют (пишут→писать, режут→резать)
+                    if ((suf === 'ут' || suf === 'ют') && /[шж]$/.test(stem)) {
+                        stem = stem.replace(/ш$/, 'с').replace(/ж$/, 'з');
+                        return ret(chooseInf(stem, suf, hadReflexive, 'ать'), 'ruVerb');
+                    }
+                    // Heuristic: stems ending with -л before -ят (гуглят/рофлят → -ить)
+                    if (suf === 'ят' && /л$/.test(stem)) {
+                        return ret(chooseInf(stem, suf, hadReflexive, 'ить'), 'ruVerb');
+                    }
+                    // Default heuristic
+                    return ret(chooseInf(stem, suf, hadReflexive), 'ruVerb');
+                }
+            }
+        }
+        // Special: already infinitive 'ться' or 'ть'
+        if (s.endsWith('ться')) return ret(s, 'ruVerb'); // already reflexive infinitive
+        if (s.endsWith('ть')) return ret(s, 'ruVerb');   // already infinitive
+
+        // Adjectives → masculine nominative singular (-ый/-ий/-ой)
+        const adjEndings = [
+            'ая','яя','ое','ее','ые','ие','ого','его','ому','ему','ым','им','ых','их','ой','ей','ую','юю','ом','ем'
+        ];
+        for (const end of adjEndings) {
+            if (s.length > end.length + 1 && s.endsWith(end)) {
+                const stem = s.slice(0, -end.length);
+                if (stem.length >= 2) {
+                    // Heuristic to choose -ий vs -ый: soft stems and historically -ий adjectives prefer -ий
+                    const softStem = /[йьжчшщ]$/.test(stem) || /нин$/.test(stem) || /син$/.test(stem);
+                    const masculine = softStem ? stem + 'ий' : stem + 'ый';
+                    return ret(masculine, 'ruAdj');
+                }
+            }
+        }
+
+        // Noun/adjective common case recovery to nominative singular
+        // Specific productive patterns first
+        // e.g., копеек -> копейка (…еек → …ейка)
+        if (/^[а-я]+еек$/.test(s)) {
+            const base = s.replace(/еек$/, 'ейка');
+            if (base.length >= 3) return ret(base, 'ruNoun');
+        }
+        // сыновья-* → сын
+        if (/^сыновья(ми|м|х)?$/.test(s) || /^сынов(ей|ям|ью|ях)$/.test(s)) {
+            return ret('сын', 'ruNoun');
+        }
+        // дверей -> дверь (…р + ей → …рь)
+        if (s.endsWith('ей')) {
+            const stem = s.slice(0, -2);
+            if (/р$/.test(stem)) {
+                const cand = stem + 'ь';
+                if (cand.length >= 2) return ret(cand, 'ruNoun');
+            }
+        }
+        // Productive diminutive plural patterns: девочек → девочка; зайчиков? (консервативно для -очка/-ечка/-ушка)
+        const diminutiveMap: Array<[RegExp, string]> = [
+            [/очек$/,'очка'],
+            [/ечек$/,'ечка'],
+            [/ушек$/,'ушка'],
+            [/юшек$/,'юшка'],
+            [/шек$/,'шка'] // keep last (most general)
+        ];
+        for (const [re, repl] of diminutiveMap) {
+            if (re.test(s) && s.length > 4) {
+                const base = s.replace(re, repl);
+                if (base.length >= 3) return ret(base, 'ruNoun');
+            }
+        }
+        // Handle -ция nouns explicitly (лемматизации → лемматизация)
+        const tsiaToTsiya: string[] = ['цией','цию','ции','ций','цам','цами','циях'];
+        for (const end of tsiaToTsiya) {
+            if (s.length > end.length + 1 && s.endsWith(end)) {
+                const base = s.slice(0, -end.length) + 'ция';
+                if (base.length >= 3) return ret(base, 'ruNoun');
+            }
+        }
+        // Patterns for -ия nouns
+        const iaPatterns: Array<[string,string]> = [
+            ['ии','ия'], ['ией','ия'], ['ию','ия'], ['ие','ие']
+        ];
+        for (const [end, repl] of iaPatterns) {
+            if (s.length > end.length + 1 && s.endsWith(end)) {
+                const base = s.slice(0, -end.length) + repl;
+                if (base.length >= 3) return ret(base, 'ruNoun');
+            }
+        }
+        // Simple case endings for -a/-я/-о/-е nouns and adjectives
+        const caseEnds: string[] = [
+            'ами','ями','ами','ях','ах','ам','ям','ою','ею','ой','ей','ую','юю','ых','их','ым','им','ом','ем','у','ю','е','а','я'
+        ];
+        for (const end of caseEnds) {
+            if (s.length > end.length + 1 && s.endsWith(end)) {
+                const base = s.slice(0, -end.length);
+                if (base.length >= 3) return ret(base, 'ruNoun');
+            }
+        }
+
+        // Keep adverbs ending in -о/-е as-is when no better rule matched (e.g., "прямо", "тихо")
+        if ((/[аеёиоуыэюя]о$/.test(s) || /[аеёиоуыэюя]е$/.test(s)) && s.length > 3) {
+            return ret(s, 'ruFallback');
+        }
+
+        // Final fallback: drop a single trailing vowel/soft sign
+        if (/[аеёиоуыэюяь]$/.test(s) && s.length > 3) {
+            return ret(s.slice(0, -1), 'ruFallback');
+        }
+        return ret(s, 'ruFallback');
+    }
+
+    /** Update options from caller */
+    setOptions(opts: any) {
+        this.options = Object.assign({}, this.options, opts || {});
     }
 }

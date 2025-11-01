@@ -1,154 +1,215 @@
+<div align="center">
+
 # Word Statistics RU/EN/CN — Obsidian Plugin
 
-Advanced word statistics for Russian, English, and Chinese with lemmatization/segmentation, interactive charts, and smart filtering.
+Analyze words across Russian, English, and Chinese notes with smart lemmatization/segmentation, filtering, and a clean UI.
 
-> Alpha status: actively evolving. Expect rapid improvements and occasional changes.
+[English](#english) • [Русский](#русский) • [中文](#中文)
 
-## Features
-
-- 📊 Word frequency analysis for Russian, English, and Chinese
-- 🧠 Lemmatization (RU/EN) and segmentation (ZH)
-- 📈 Interactive chart view and full table view
-- 🎛️ Rich settings: content filtering, exclude common words, custom exclusions
-- ⚡ Caching for faster reloads, batched processing to keep UI responsive
-- 🌐 Fully localized UI (RU/EN/ZH)
-- 🧪 Built‑in strict test with reference poem for quick validation
-- 💾 Export results to CSV/JSON (filtered), plus quick "Export All" from the panel
-
-## Installation
-
-### Method A: via BRAT (recommended)
-
-1. **Install BRAT plugin** in Obsidian:
-   - Go to Settings → Community plugins → Browse
-   - Search for "BRAT" and install it
-   - Enable BRAT plugin
-
-2. **Add this plugin to BRAT**:
-   - Open Command Palette (`Ctrl+P` / `Cmd+P`)
-   - Run: `BRAT: Add a beta plugin`
-   - You can use either of the following:
-     - Repository URL:
-       https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN
-     - Or repository name: `HappyToy010101/obsidian-word-statistics-RU-EN-CN`
-   - Click "Add Plugin" (optionally enable auto‑update in BRAT)
-
-3. **Enable the plugin**:
-   - Go to Settings → Community plugins
-   - Find "Word Statistics RU EN CN" in disabled plugins list
-   - Enable it
-
-### Method B: Manual installation
-
-1. **Get the files**:
-    - Option 1 (preferred): Download `manifest.json`, `main.js`, `styles.css` from the latest GitHub Release
-       https://github.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN/releases
-    - Option 2 (build locally): clone the repo and run `npm install` then `npm run build` to generate `main.js`
-
-2. **Extract to your vault**:
-   - Navigate to your vault folder: `YourVault/.obsidian/plugins/`
-   - Create folder: `word-statistics-ru-en-cn`
-   - Ensure the folder contains at least these files:
-     - `manifest.json`
-     - `main.js`
-     - `styles.css`
-
-3. **Enable the plugin**:
-   - Restart Obsidian
-   - Go to Settings → Community plugins
-   - Enable "Word Statistics RU EN CN"
-
-Notes
-- Minimum Obsidian version: 0.15.0
-- BRAT installs will auto‑update if you enable it in BRAT. For manual installs, replace `main.js`, `manifest.json`, and `styles.css` to update.
-
-## File structure in your vault
-
-```
-YourVault/.obsidian/plugins/
-└── word-statistics-ru-en-cn/
-    ├── manifest.json
-   ├── main.js
-    ├── styles.css
-   └── (other files are OK but not required)
-```
-
-## Usage
-
-1) Click the 📊 ribbon icon to open the Word Statistics view.
-2) Choose language (🇷🇺/🇺🇸/🇨🇳) and adjust “Exclude top words”.
-3) Click “Refresh Statistics” to analyze your vault.
-4) Switch between table and chart views anytime.
-5) Export results using the CSV/JSON buttons in the header; files open automatically after export and are saved to your vault root.
-
-Tips
-- Add your own words to ignore via the “Add user words to exclude” input.
-- Use content filtering options to ignore Markdown/code/links/math.
-- The “Longest word” and “Last updated” badges summarize the run.
-
-## Troubleshooting
-
-**If plugin doesn't appear:**
-- Restart Obsidian completely
-- Check folder structure matches exactly
-- Verify all three required files are present
-- Check console for errors (Ctrl+Shift+I)
-
-**If features don't work:**
-- Ensure dictionaries load (check console)
-- Try refreshing statistics
-- Verify language setting matches your content
-
-## Settings overview
-
-- Language: RU / EN / ZH
-- Minimum word length: ignore very short tokens
-- Exclude top common words: percentage‑based removal of frequent words
-- Content filtering: ignore Markdown/code/URLs/math/tags
-- Additional excluded words: comma‑separated list
-- Caching: persist stats between sessions
-- Tools: reload dictionaries, create a test file, view expected stats, run strict test
-
-## Developer quick start (optional)
-
-This repo builds a single CommonJS `main.js` bundle via esbuild. Obsidian loads `main.js` at runtime.
-
-```powershell
-# From the plugin folder
-npm install
-npm run build        # type‑check, then bundle to main.js (no JS emitted in src)
-npm run build:watch  # auto‑rebuild main.js on save
-npm run typecheck    # TS type checking without emit
-```
-
-Structure highlights
-- Entry source: `main.ts` → bundled `main.js`
-- Modules: `src/constants.ts`, `src/lemmatizer.ts`, `src/chineseSegmenter.ts`, `src/languageManager.ts`, `src/i18n/translations.ts`, `src/data/poem.ts`
-- Types: `types/obsidian-shim.d.ts` for editor IntelliSense
-
-## Language support
-
-- Russian: dictionary‑based lemmatization
-- English: dictionary‑based lemmatization
-- Chinese: optimized word segmentation
-
-## Run the strict test
-
-Open Settings → Word Statistics → “Run Strict Test”. The test processes a reference poem in RU/EN/ZH and validates totals, uniques, and top words with a small tolerance. Use this to sanity‑check dictionaries and segmentation.
-
-## Support
-
-Report issues and suggestions on GitHub:
-- Obsidian version
-- Plugin version
-- Steps to reproduce and any console errors
-
-## License
-
-MIT License
+</div>
 
 ---
 
-Screenshots: Coming soon (chart + table view, settings).
+## English
 
-— Alpha build —
+> Alpha status: actively evolving. Expect rapid improvements and occasional changes.
+
+### Features
+
+- 📊 Word frequency analysis for Russian, English, and Chinese
+- 🧠 Lemmatization (RU/EN) and segmentation (ZH)
+- ✂️ Optional preposition/particle exclusion per language
+- 🇨🇳 Chinese: improved segmentation with custom phrases + manual segmentation modal
+- 🇷🇺 Russian: advanced fallback rules for unknown words (optional)
+- 📈 Interactive chart view and full table view
+- 🎛️ Rich settings: content filtering, exclude common words, custom exclusions
+- ⚡ Caching for faster reloads, batched processing to keep UI responsive
+- 🪄 Lazy‑load dictionaries only for the active language
+- 🧭 First‑run auto‑detect of default language
+- 🌐 Fully localized UI (RU/EN/ZH)
+- 🧪 Built‑in strict test with reference poem
+- 💾 Export to CSV/JSON (filtered) and Export All
+
+### Installation (super easy)
+
+1) One‑click (Windows, recommended)
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; irm https://raw.githubusercontent.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN/main/scripts/install_from_github.ps1 | iex; install_from_github.ps1 -VaultPath "E:\\Path\\To\\Your\\Vault"
+```
+
+2) BRAT (no terminal): install BRAT → BRAT: Add a beta plugin → add `HappyToy010101/obsidian-word-statistics-RU-EN-CN` → enable.
+
+3) Manual ZIP: download latest Release (`manifest.json`, `main.js`, `styles.css`) → put into `<Vault>/.obsidian/plugins/word-statistics-ru-en-cn/` → enable in Obsidian.
+
+Notes: Minimum Obsidian 0.15. BRAT can auto‑update. For manual updates, replace `main.js`, `manifest.json`, `styles.css`.
+
+### Usage
+
+1. Open 📊 Word Statistics view from the ribbon.
+2. Choose language (RU/EN/ZH), set “Exclude top words”.
+3. Click “Refresh Statistics”. Switch table/chart anytime.
+4. Export CSV/JSON; files are saved to the vault root.
+
+Tips: add user words to exclude; enable content filters; see “Longest word” and “Last updated”.
+
+### Settings overview
+
+- Language (auto‑detect on first run; optional follow system language)
+- Minimum word length, exclude common words (%), content filters (Markdown/URLs/code/math/tags)
+- Ignore prepositions/particles per language
+- Chinese segmentation: dictionary vs segmentit, custom phrases, manual segmentation
+- Russian: advanced fallback rules for unknown words (optional)
+- Tools: reload dictionaries, create test file, show expected stats, run strict test
+
+### Developer quick start
+
+```powershell
+npm install
+npm run build
+npm run build:watch
+npm run typecheck
+```
+
+Windows helpers:
+
+```powershell
+./scripts/build_and_package.ps1
+./scripts/build_and_package.ps1 -VaultPath "E:\\Path\\To\\Your\\Vault"
+```
+
+### License
+
+MIT
+
+---
+
+## Русский
+
+> Статус: альфа. Проект активно развивается; ожидайте частые улучшения.
+
+### Возможности
+
+- 📊 Частотный анализ слов для русского, английского и китайского
+- 🧠 Лемматизация (RU/EN) и сегментация (ZH)
+- ✂️ Опциональное исключение предлогов/частиц
+- 🇨🇳 Китайский: улучшенная сегментация + ручная правка + пользовательские фразы
+- 🇷🇺 Русский: расширенные правила fallback для неизвестных слов (опция)
+- 📈 График и полная таблица
+- 🎛️ Гибкие настройки: фильтрация контента, исключение частотных слов, собственные исключения
+- ⚡ Кэш, пакетная обработка — интерфейс не «висит»
+- 🪄 Ленивая загрузка словарей (только для активного языка)
+- 🧭 Автоопределение языка при первом запуске
+- 🌐 Полная локализация интерфейса (RU/EN/ZH)
+- 🧪 Встроенный строгий тест на эталонном стихотворении
+- 💾 Экспорт CSV/JSON (фильтр) и «Экспорт всего»
+
+### Установка (очень просто)
+
+1) One‑click (Windows, рекомендовано)
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; irm https://raw.githubusercontent.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN/main/scripts/install_from_github.ps1 | iex; install_from_github.ps1 -VaultPath "E:\\Ваш\\Vault"
+```
+
+2) Через BRAT: установите BRAT → команда `BRAT: Add a beta plugin` → добавьте `HappyToy010101/obsidian-word-statistics-RU-EN-CN` → включите плагин.
+
+3) Ручной ZIP: скачайте релиз (`manifest.json`, `main.js`, `styles.css`) → скопируйте в `<Vault>/.obsidian/plugins/word-statistics-ru-en-cn/` → включите в Obsidian.
+
+Примечания: Минимальная версия Obsidian 0.15. BRAT умеет авто‑обновлять. Для ручного обновления замените `main.js`, `manifest.json`, `styles.css`.
+
+### Как пользоваться
+
+1. Откройте вид 📊 «Статистика слов» (значок на панели).
+2. Выберите язык (RU/EN/ZH), настройте «Исключить топ слов».
+3. Нажмите «Обновить статистику». Переключайте таблицу/график в любой момент.
+4. Экспортируйте CSV/JSON; файлы сохраняются в корень вашего vault.
+
+Подсказки: добавляйте свои слова для исключения; используйте фильтрацию контента; обращайте внимание на «Самое длинное слово» и «Последнее обновление».
+
+### Настройки — обзор
+
+- Язык (автоопределение; опция «следовать системному языку»)
+- Минимальная длина, исключение частых слов (%), фильтры (Markdown/URL/код/математика/теги)
+- Игнорировать предлоги/частицы
+- Китайский: segmentit vs словарь, пользовательские фразы, ручная сегментация
+- Русский: расширенные fallback‑правила для неизвестных слов (опция)
+- Инструменты: перезагрузка словарей, тестовый файл, ожидаемая статистика, строгий тест
+
+### Для разработчиков
+
+```powershell
+npm install
+npm run build
+npm run build:watch
+npm run typecheck
+```
+
+Windows‑скрипты:
+
+```powershell
+./scripts/build_and_package.ps1
+./scripts/build_and_package.ps1 -VaultPath "E:\\Ваш\\Vault"
+```
+
+### Лицензия
+
+MIT
+
+---
+
+## 中文
+
+> 开发中（Alpha）：持续改进，更新频繁。
+
+### 功能
+
+- 📊 统计俄/英/中文的词频
+- 🧠 词形还原（俄/英）与分词（中文）
+- ✂️ 可选排除介词/助词
+- 🇨🇳 中文：改进分词，支持自定义词与手动分词面板
+- 🇷🇺 俄文：未知词高级回退规则（可选）
+- 📈 图表视图 + 完整表格视图
+- 🎛️ 丰富设置：内容过滤、排除常见词、自定义排除
+- ⚡ 缓存与分批处理，保证界面流畅
+- 🪄 仅按需加载当前语言的字典
+- 🧭 首次运行自动检测默认语言
+- 🌐 全面本地化（RU/EN/ZH）
+- 🧪 内置严格测试（参考诗歌）
+- 💾 导出 CSV/JSON（过滤）与“导出全部”
+
+### 安装（非常简单）
+
+1) 一键安装（Windows，推荐）
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; irm https://raw.githubusercontent.com/HappyToy010101/obsidian-word-statistics-RU-EN-CN/main/scripts/install_from_github.ps1 | iex; install_from_github.ps1 -VaultPath "E:\\Your\\Vault"
+```
+
+2) 通过 BRAT：安装 BRAT → “BRAT: Add a beta plugin” → 添加 `HappyToy010101/obsidian-word-statistics-RU-EN-CN` → 启用插件。
+
+3) 手动 ZIP：下载最新 Release（`manifest.json`, `main.js`, `styles.css`）→ 放入 `<Vault>/.obsidian/plugins/word-statistics-ru-en-cn/` → 在 Obsidian 启用。
+
+说明：最低支持 Obsidian 0.15。BRAT 可自动更新；手动更新替换 `main.js`、`manifest.json`、`styles.css`。
+
+### 使用方法
+
+1. 点击侧栏📊图标打开统计视图。
+2. 选择语言（RU/EN/ZH），调整“排除常见词”。
+3. 点击“刷新统计”。可随时在表格/图表之间切换。
+4. 导出 CSV/JSON；文件保存到库根目录。
+
+提示：可添加要排除的用户词；启用内容过滤；查看“最长单词”和“上次更新时间”。
+
+### 设置概览
+
+- 语言（首次自动检测；可跟随系统语言）
+- 最小词长、排除常见词（百分比）、过滤（Markdown/URL/代码/数学/标签）
+- 忽略介词/助词
+- 中文：segmentit / 字典模式，自定义词，手动分词
+- 俄文：未知词高级回退规则（可选）
+- 工具：重载字典、创建测试文件、查看预期统计、运行严格测试
+
+### 许可协议
+
+MIT

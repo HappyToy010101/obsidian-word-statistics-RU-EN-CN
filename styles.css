@@ -1,9 +1,10 @@
 /* Language Statistics Plugin - Beautiful Styles */
 
 .word-stats-container {
-    padding: 20px;
+    padding: clamp(12px, 2vw, 20px);
     max-width: 100%;
     font-family: var(--font-family);
+    overflow-y: auto; /* ensure vertical scrollbar appears when content exceeds pane height */
 }
 
 /* Header Styles */
@@ -11,6 +12,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap; /* allow wrapping to keep controls visible on smaller widths */
+    gap: 12px;       /* consistent spacing when wrapped */
     margin-bottom: 24px;
     padding-bottom: 16px;
     border-bottom: 2px solid var(--background-modifier-border);
@@ -23,7 +26,7 @@
 }
 
 .word-stats-icon {
-    font-size: 24px;
+    font-size: clamp(18px, 2.2vw, 26px);
     animation: bounce 2s infinite;
 }
 
@@ -31,8 +34,9 @@
     margin: 0;
     color: var(--text-normal);
     font-weight: 700;
-    font-size: 24px;
+    font-size: clamp(18px, 2.6vw, 28px);
     background: linear-gradient(135deg, var(--interactive-accent), #7e6df3);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -40,15 +44,31 @@
 .word-stats-buttons {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;      /* wrap buttons to multiple rows if needed */
+    row-gap: 8px;         /* tighter vertical gap for wrapped rows */
+}
+
+/* When header wraps, ensure buttons can occupy a new line cleanly */
+/* (intentionally no additional constraints for .word-stats-buttons inside header) */
+
+/* Medium widths: stack header earlier to guarantee visibility */
+@media (max-width: 1100px) {
+    .word-stats-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .word-stats-buttons {
+        justify-content: flex-start;
+    }
 }
 
 /* Button Styles */
 .word-stats-btn {
-    padding: 10px 20px;
     border: none;
     border-radius: 12px;
     font-weight: 600;
-    font-size: 14px;
+    padding: clamp(8px, 1.2vw, 10px) clamp(12px, 2vw, 20px);
+    font-size: clamp(12px, 1.6vw, 14px);
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
@@ -95,7 +115,7 @@
     margin-bottom: 8px;
     font-weight: 600;
     color: var(--text-normal);
-    font-size: 14px;
+    font-size: clamp(12px, 1.6vw, 14px);
 }
 
 .word-stats-language-select {
@@ -107,7 +127,7 @@
     border-radius: 8px;
     background: var(--background-primary);
     color: var(--text-normal);
-    font-size: 14px;
+    font-size: clamp(12px, 1.6vw, 14px);
     font-weight: 500 !important;
     line-height: 1.5 !important;
     transition: all 0.3s ease;
@@ -184,10 +204,10 @@
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 12px;
-    padding: 20px;
+    padding: clamp(12px, 2vw, 20px);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     position: relative;
-    min-height: 500px;
+    min-height: clamp(360px, 60vh, 520px);
     display: flex;
     flex-direction: column;
 }
@@ -197,8 +217,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding: 16px;
+    margin-bottom: clamp(10px, 2vw, 20px);
+    padding: clamp(10px, 2vw, 16px);
     background: var(--background-secondary);
     border-radius: 8px;
     border: 1px solid var(--background-modifier-border);
@@ -206,8 +226,8 @@
 
 .word-stats-chart-stats {
     display: flex;
-    gap: 20px;
-    font-size: 14px;
+    gap: clamp(10px, 2vw, 20px);
+    font-size: clamp(12px, 1.6vw, 14px);
 }
 
 .word-stats-chart-stat {
@@ -244,7 +264,7 @@
     flex: 1;
     width: 100%;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: auto; /* allow vertical overflow if needed to preserve page scroll */
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
     background: var(--background-secondary);
@@ -268,9 +288,9 @@
 .word-stats-chart-controls {
     display: flex;
     align-items: center;
-    gap: 20px;
-    margin-top: 20px;
-    padding: 16px;
+    gap: clamp(10px, 2vw, 20px);
+    margin-top: clamp(10px, 2vw, 20px);
+    padding: clamp(10px, 2vw, 16px);
     background: var(--background-secondary);
     border-radius: 8px;
     border: 1px solid var(--background-modifier-border);
@@ -320,6 +340,18 @@
 .word-stats-chart-zoom {
     display: flex;
     gap: 10px;
+}
+
+/* Закрепляем кнопки зума поверх графика в правом верхнем углу обертки */
+.word-stats-chart-wrapper .word-stats-chart-zoom {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    padding: 6px;
 }
 
 .word-stats-zoom-btn {
@@ -414,7 +446,8 @@
         gap: 15px;
     }
     
-    .word-stats-chart-zoom {
+    /* Если зум-кнопки находятся внизу в контролах, можно растянуть; но для оверлея этого не нужно */
+    .word-stats-chart-controls .word-stats-chart-zoom {
         width: 100%;
         justify-content: center;
     }
@@ -663,6 +696,32 @@
     font-weight: 500;
 }
 
+/* Subtle unknown words badge */
+.word-stats-unknown-badge {
+    opacity: 0.55;
+    font-size: 12px;
+    background: transparent;
+    border: 1px dashed var(--background-modifier-border);
+    color: var(--text-muted);
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 4px;
+    align-self: flex-start;
+}
+.word-stats-unknown-badge:hover { opacity: 0.9; border-style: solid; color: var(--text-normal); }
+
+/* Unknown words modal */
+.unknown-words-container { padding: 8px; }
+.unknown-words-header { display:flex; justify-content: space-between; align-items:center; gap:8px; margin-bottom: 8px; }
+.unknown-words-hint { font-size: 12px; color: var(--text-muted); }
+.unknown-words-actions button { margin-left: 6px; }
+.unknown-words-list { display:flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.unknown-row { display:grid; grid-template-columns: 40px 1fr auto auto auto; gap:6px; align-items:center; }
+.unknown-count { color: var(--text-muted); text-align:right; }
+.unknown-word { color: var(--text-muted); }
+.unknown-lemma-input { width: 100%; }
+.unknown-empty { color: var(--text-muted); padding: 8px 0; }
+
 /* Word List Styles */
 .word-stats-list-container {
     margin-top: 20px;
@@ -680,7 +739,7 @@
 }
 
 .word-stats-list {
-    max-height: 600px;
+    max-height: min(60vh, 600px);
     overflow-y: auto;
     border: 1px solid var(--background-modifier-border);
     border-radius: 0 0 8px 8px;
@@ -797,59 +856,44 @@
 
 /* Test Results Styles */
 .test-overall-result {
-    font-size: 18px;
-    font-weight: bold;
+    font-size: 16px;
+    font-weight: 600;
     padding: 12px;
     border-radius: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     text-align: center;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    border-left: 4px solid var(--interactive-accent);
 }
 
-.test-passed {
-    background: var(--background-modifier-success);
-    color: var(--text-success);
-}
+/* Explicit state accents via border color only — keep high text contrast */
+.test-overall-result.test-passed { border-left-color: var(--interactive-accent); }
+.test-overall-result.test-failed { border-left-color: var(--text-error); }
 
-.test-failed {
-    background: var(--background-modifier-error);
-    color: var(--text-error);
-}
-
-.test-excellent {
-    background: var(--background-modifier-success);
-    color: var(--text-success);
-    font-size: 16px;
-    font-weight: bold;
-}
-
-.test-acceptable {
-    background: var(--background-modifier-cover);
-    color: var(--text-accent);
-    font-size: 16px;
-    font-weight: bold;
-}
-
+.test-excellent,
+.test-acceptable,
 .test-critical {
-    background: var(--background-modifier-error);
-    color: var(--text-error);
-    font-size: 16px;
-    font-weight: bold;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 14px;
+    font-weight: 600;
+    border-left: 4px solid var(--interactive-accent);
 }
+
+.test-critical { border-left-color: var(--text-error); }
 
 .test-result {
-    padding: 12px;
+    padding: 10px 12px;
     margin-bottom: 8px;
     border-radius: 6px;
-    border-left: 4px solid;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    border-left: 4px solid var(--background-modifier-border);
 }
 
-.test-result.test-passed {
-    border-left-color: var(--text-success);
-}
-
-.test-result.test-failed {
-    border-left-color: var(--text-error);
-}
+.test-result.test-passed { border-left-color: var(--interactive-accent); }
+.test-result.test-failed { border-left-color: var(--text-error); }
 
 .test-details {
     margin-top: 8px;
@@ -1097,4 +1141,61 @@
 .chart-point:hover {
     r: 6 !important;
     stroke-width: 3 !important;
+}
+
+/* Manual Chinese segmentation modal */
+.manual-seg-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.manual-seg-input {
+    width: 100%;
+    min-height: 120px;
+    padding: 10px 12px;
+    border: 2px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+}
+.manual-seg-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.manual-seg-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 8px;
+    min-height: 48px;
+}
+.manual-seg-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+.manual-seg-chip:hover { border-color: var(--interactive-accent); }
+.manual-seg-chip.selected {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+/* Предпочтение к сниженной анимации */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
 }
