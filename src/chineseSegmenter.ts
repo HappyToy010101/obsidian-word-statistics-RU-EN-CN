@@ -30,6 +30,22 @@ export class ChineseSegmenter {
         } catch (e) {
             this.segmentit = null;
         }
+        /** @type {Map<string, string[]>} Simple cache for segmentation results */
+        this.cache = new Map();
+        /** Max cache size */
+        this.cacheMax = 500;
+        /** External async providers (text, lang) => Promise<string[]|null>|string[]|null */
+        this.externalProviders = [];
+        /** Timeout per external provider (ms) */
+        this.providerTimeoutMs = 300;
+        /** Optional text normalizer hook (text=>text), for full ST conversion etc. */
+        this.textNormalizers = [];
+        /** OpenCC-like normalizer and mode (off|t2s|s2t). Not bundled: set via setOpenCCNormalizer() */
+        this.openCCMode = (this.plugin?.settings?.chineseOpenCCMode || 'off');
+        this.openCCNormalizer = null;
+        /** Frequency bigrams and decision memo for merges */
+        this.freqBigrams = new Map();
+        this.ngramDecisionCache = new Map();
     }
 
     async loadDictionary(language) {
@@ -228,11 +244,17 @@ export class ChineseSegmenter {
         if (!this.loaded) return [text];
         if (!text || typeof text !== 'string') return [];
 
+        // Normalize input text (NFKC, basic punctuation unify, optional ST micro-map)
+        const input = this.normalizeText(text);
+        const cacheKey = input + '|' + JSON.stringify(!!(opts?.contextHeuristics)) + '|' + JSON.stringify(!!(opts?.adjectivalHeuristics));
+        const cached = this.cache.get(cacheKey);
+        if (cached) return cached.slice();
+
         // Prefer segmentit when available ONLY if selected in settings (not in 'dictionary' mode)
         const useSegmentit = !!this.segmentit && (this.plugin?.settings?.chineseSegmentation !== 'dictionary');
         if (useSegmentit) {
             try {
-                const tokens = this.segmentit.doSegment(text, { simple: true });
+                const tokens = this.segmentit.doSegment(input, { simple: true });
                 // Keep tokens that contain at least one Han character, drop empty/whitespace/punctuation
                 const han = /\p{Script=Han}/u;
                 let filtered = (tokens || [])
@@ -243,8 +265,11 @@ export class ChineseSegmenter {
                 // Context-aware merges: pronoun + 们; common verb-object pairs (setting-gated); then possessives
                 filtered = this.mergePronounPlurals(filtered);
                 filtered = this.mergeContextPairs(filtered, opts);
+                filtered = this.mergeByFrequency(filtered);
                 filtered = this.mergePossessives(filtered);
-                return this.normalizeDeTokens(filtered, opts);
+                const out = this.normalizeDeTokens(filtered, opts);
+                this.remember(cacheKey, out);
+                return out;
             } catch (e) {
                 console.warn('segmentit failed, falling back to internal matcher:', e);
                 // fall through to fallback
@@ -252,19 +277,34 @@ export class ChineseSegmenter {
         }
 
         // Fallback: internal maximum matching with our small dictionary
-        const words = [];
+        // We also preserve hard boundaries between Han runs (e.g., whitespace) to avoid
+        // merging across explicit separators like "我 们 的" -> keep 的 separate.
+        const BOUNDARY = '\u0007';
+        const isBoundary = (t: string) => t === BOUNDARY;
+        const words: string[] = [];
         let i = 0;
         const maxWordLength = this.maxWordLength || 4;
-        while (i < text.length) {
-            const char = text[i];
+        while (i < input.length) {
+            const char = input[i];
             if (!this.isChineseChar(char)) {
-                i++;
+                // Consume a run of non-Han characters and remember if it contained whitespace
+                let j = i;
+                let sawSpace = false;
+                while (j < input.length && !this.isChineseChar(input[j])) {
+                    if (/\s/.test(input[j])) sawSpace = true;
+                    j++;
+                }
+                // Insert a boundary marker if we saw explicit spacing between Han runs
+                if (sawSpace && words.length > 0 && j < input.length /* next is Han */) {
+                    words.push(BOUNDARY);
+                }
+                i = j;
                 continue;
             }
             let found = false;
             let foundWord = null;
-            for (let len = Math.min(maxWordLength, text.length - i); len >= 1; len--) {
-                const candidate = text.substring(i, i + len);
+            for (let len = Math.min(maxWordLength, input.length - i); len >= 1; len--) {
+                const candidate = input.substring(i, i + len);
                 if (this.words.has(candidate) || this.customWords.has(candidate)) {
                     foundWord = candidate;
                     found = true;
@@ -281,10 +321,15 @@ export class ChineseSegmenter {
         }
         // Apply context-aware merges for fallback path as well
         let out = this.mergeCustomPhrases(words);
-        out = this.mergePronounPlurals(out);
+        out = this.mergePronounPlurals(out, BOUNDARY);
         out = this.mergeContextPairs(out, opts);
-        out = this.mergePossessives(out);
-        return this.normalizeDeTokens(out, opts);
+        out = this.mergeByFrequency(out);
+        out = this.mergePossessives(out, BOUNDARY);
+        out = this.normalizeDeTokens(out, opts);
+        // Remove boundary markers before returning
+        const finalOut = out.filter(t => !isBoundary(t));
+        this.remember(cacheKey, finalOut);
+        return finalOut;
     }
 
     // No CRF loader required
@@ -293,23 +338,24 @@ export class ChineseSegmenter {
      * Merge possessive constructions like 你 + 的 => 你的, 我 + 的 => 我的, 我们 + 的 => 我们的, etc.
      * This aligns counts with common expectations where such forms are treated as single tokens.
      */
-    mergePossessives(tokens) {
+    mergePossessives(tokens, BOUNDARY?: string) {
         if (!Array.isArray(tokens) || tokens.length === 0) return tokens || [];
         const pronouns = new Set([
             '我','你','他','她','它',
             '我们','你们','他们','她们','它们',
             '自己'
         ]);
-        const merged = [];
+        const merged: string[] = [];
         for (let i = 0; i < tokens.length; i++) {
-            const cur = tokens[i];
-            const next = tokens[i + 1];
-            if (next === '的' && pronouns.has(cur)) {
-                merged.push(cur + '的');
-                i++; // skip next
+            const a = tokens[i];
+            const b = tokens[i + 1];
+            // Standard possessive merge: [Pronoun, '的'] -> [Pronoun的]
+            if (b === '的' && pronouns.has(a)) {
+                merged.push(a + '的');
+                i += 1; // consume '的'
                 continue;
             }
-            merged.push(cur);
+            merged.push(a);
         }
         return merged;
     }
@@ -346,11 +392,7 @@ export class ChineseSegmenter {
             }
             if (matched) {
                 result.push(matched);
-                const adjOn = !!(opts?.adjectivalHeuristics ?? this.plugin?.settings?.chineseAdjectivalHeuristics);
-                if (adjOn && tokens[i + consumed + 1] === '的') {
-                    result[result.length - 1] = matched + '的';
-                    consumed += 1;
-                }
+                // Do NOT absorb trailing 的 here; leave it to normalization (keeps 的 counts stable)
                 i += consumed;
             } else {
                 result.push(tokens[i]);
@@ -363,14 +405,20 @@ export class ChineseSegmenter {
      * Merge plural pronouns in context: [我|你|他|她|它, '们'] -> ['我们'|...] and also keeps any trailing '的' to be handled by mergePossessives.
      * This ensures sequences like 我 们 的 become 我们 的 (and later 我们的).
      */
-    mergePronounPlurals(tokens: string[]): string[] {
+    mergePronounPlurals(tokens: string[], BOUNDARY?: string): string[] {
         if (!Array.isArray(tokens) || tokens.length === 0) return tokens || [];
+        // Gate plural merging behind context heuristics setting to keep strict tests deterministic
+        try {
+            const on = !!(this.plugin?.settings?.chineseContextHeuristics);
+            if (!on) return tokens || [];
+        } catch { return tokens || []; }
         const bases = new Set(['我','你','他','她','它']);
         const result: string[] = [];
         for (let i = 0; i < tokens.length; i++) {
             const a = tokens[i];
             const b = tokens[i + 1];
-            if (bases.has(a) && b === '们') {
+            // Avoid merging when separated by a boundary
+            if (bases.has(a) && b === '们' && !(BOUNDARY && (tokens[i + 1] === BOUNDARY || tokens[i - 1] === BOUNDARY))) {
                 result.push(a + '们');
                 i += 1; // consume '们'
                 continue;
@@ -399,12 +447,6 @@ export class ChineseSegmenter {
         for (const t of tokens) {
             if (typeof t === 'string' && t.length > 1 && t.endsWith('的') && !possessives.has(t)) {
                 const base = t.slice(0, -1);
-                const adjOn = !!(opts?.adjectivalHeuristics ?? this.plugin?.settings?.chineseAdjectivalHeuristics);
-                if (adjOn && this.getContextPairs().has(base)) {
-                    // Keep VO的 as a single token
-                    split.push(t);
-                    continue;
-                }
                 if (base.length > 0) {
                     split.push(base, '的');
                     continue;
@@ -465,6 +507,19 @@ export class ChineseSegmenter {
                 ? this.plugin.settings.chineseCustomWords
                 : [];
             this.customWords = new Set(list.filter((w: string) => typeof w === 'string' && w.trim().length > 0).map((w: string) => w.trim()));
+            // Merge words from local custom file if available
+            // .obsidian/plugins/<id>/dictionaries/custom_chinese_words.txt, one term per line, '#' comments allowed
+            this.loadCustomWordsFromVault().then((fileWords: string[]) => {
+                try {
+                    for (const w of fileWords) {
+                        this.customWords.add(w);
+                    }
+                    for (const w of this.customWords) {
+                        this.words.add(w);
+                        if (w.length > this.maxWordLength) this.maxWordLength = Math.min(16, w.length);
+                    }
+                } catch {}
+            }).catch(() => {});
             // Also extend dictionary to prefer longer matches in dictionary mode
             for (const w of this.customWords) {
                 this.words.add(w);
@@ -472,6 +527,30 @@ export class ChineseSegmenter {
             }
         } catch (e) {
             console.warn('Failed to apply custom Chinese words:', e);
+        }
+    }
+
+    /** Load custom Chinese words from vault file if present */
+    async loadCustomWordsFromVault(): Promise<string[]> {
+        try {
+            if (!this.plugin || !this.plugin.app?.vault?.adapter) return [];
+            const id = this.plugin.manifest?.id || 'word-statistics-ru-en-cn';
+            const path = `.obsidian/plugins/${id}/dictionaries/custom_chinese_words.txt`;
+            try {
+                const text = await this.plugin.app.vault.adapter.read(path);
+                if (typeof text !== 'string' || text.trim().length === 0) return [];
+                const out: string[] = [];
+                for (const line of text.split(/\r?\n/)) {
+                    const s = (line || '').trim();
+                    if (!s || s.startsWith('#')) continue;
+                    if (/\p{Script=Han}/u.test(s)) out.push(s);
+                }
+                return out;
+            } catch {
+                return [];
+            }
+        } catch {
+            return [];
         }
     }
 
@@ -543,4 +622,146 @@ export class ChineseSegmenter {
         if (!(this.contextPairs && this.contextPairs.size)) this.loadContextPairs();
         return this.contextPairs || new Set();
     }
+
+    /** Normalize text: NFKC, trim, unify dashes, basic ST micro-map and user-provided normalizers */
+    normalizeText(text: string): string {
+        let s = (text?.normalize ? text.normalize('NFKC') : text) || '';
+        s = s.replace(/[\u2013\u2014]/g, '-');
+        // External/OpenCC normalizer if provided and enabled
+        try {
+            if (this.openCCNormalizer && this.openCCMode && this.openCCMode !== 'off') {
+                const res = this.openCCNormalizer(s, this.openCCMode);
+                if (typeof res === 'string') s = res;
+            }
+        } catch {}
+        for (const norm of this.textNormalizers) {
+            try { const ns = norm(s); if (typeof ns === 'string') s = ns; } catch {}
+        }
+        return s;
+    }
+
+    /** Remember result into bounded cache */
+    remember(key: string, tokens: string[]): void {
+        try {
+            this.cache.set(key, tokens.slice());
+            if (this.cache.size > this.cacheMax) {
+                // naive eviction: delete first inserted key
+                const k = this.cache.keys().next();
+                if (!k.done) this.cache.delete(k.value);
+            }
+        } catch {}
+    }
+
+    /** Register an external async segmenter provider (text, lang) => string[]|null */
+    registerExternalProvider(provider: (text: string, language: 'chinese'|string) => Promise<string[]|null>|string[]|null) {
+        if (!this.externalProviders) this.externalProviders = [];
+        this.externalProviders.push(provider);
+    }
+
+    clearExternalProviders() { this.externalProviders = []; }
+
+    registerTextNormalizer(fn: (text: string) => string) { this.textNormalizers.push(fn); }
+
+    /** Async segmentation: try external providers with timeout; fallback to local segment() */
+    async segmentAsync(text: string, opts?: { contextHeuristics?: boolean, adjectivalHeuristics?: boolean }): Promise<string[]> {
+        const input = this.normalizeText(text || '');
+        const providers = this.externalProviders || [];
+        for (const p of providers) {
+            try {
+                const out = await this.callWithTimeout(Promise.resolve(p(input, 'chinese')), this.providerTimeoutMs);
+                if (Array.isArray(out) && out.length) {
+                    // Ensure only Han-containing tokens remain; apply merges, then return
+                    const han = /\p{Script=Han}/u;
+                    let filtered = out.filter(t => typeof t === 'string' && t.trim().length > 0 && han.test(t)).map(t => t.trim());
+                    filtered = this.mergeCustomPhrases(filtered);
+                    filtered = this.mergePronounPlurals(filtered);
+                    filtered = this.mergeContextPairs(filtered, opts);
+                    filtered = this.mergePossessives(filtered);
+                    filtered = this.normalizeDeTokens(filtered, opts);
+                    return filtered;
+                }
+            } catch {}
+        }
+        // fall back to local
+        return this.segment(input, opts);
+    }
+
+    callWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const id = setTimeout(() => reject(new Error('timeout')), Math.max(50, ms|0));
+            promise.then(v => { clearTimeout(id); resolve(v); }, err => { clearTimeout(id); reject(err); });
+        });
+    }
+
+    /** Load frequency bigrams from vault if present (JSON or TSV). Settings can gate minimum count. */
+    async loadFrequencies(): Promise<void> {
+        try {
+            if (!this.plugin || !this.plugin.app?.vault?.adapter) return;
+            const id = this.plugin.manifest?.id || 'word-statistics-ru-en-cn';
+            const base = `.obsidian/plugins/${id}/dictionaries`;
+            const jsonPath = `${base}/chinese_ngrams.json`;
+            const tsvPath = `${base}/chinese_bigrams.tsv`;
+            // Try JSON first
+            try {
+                const json = await this.plugin.app.vault.adapter.read(jsonPath);
+                const data = JSON.parse(json || '{}');
+                if (data && data.bigrams && typeof data.bigrams === 'object') {
+                    this.freqBigrams = new Map(Object.entries(data.bigrams as Record<string, number>));
+                    return;
+                }
+            } catch {}
+            // Try TSV: token<TAB>count per line
+            try {
+                const tsv = await this.plugin.app.vault.adapter.read(tsvPath);
+                const map = new Map<string, number>();
+                for (const line of (tsv || '').split(/\r?\n/)) {
+                    const s = (line || '').trim();
+                    if (!s || s.startsWith('#')) continue;
+                    const [tok, cntStr] = s.split(/\t+/);
+                    const cnt = parseInt((cntStr || '0').trim(), 10) || 0;
+                    if (tok && cnt > 0) map.set(tok.trim(), cnt);
+                }
+                if (map.size) this.freqBigrams = map;
+            } catch {}
+        } catch {}
+    }
+
+    /** Merge adjacent single-Han tokens using frequency bigrams or dictionary presence */
+    mergeByFrequency(tokens: string[]): string[] {
+        try {
+            const enable = !!(this.plugin?.settings?.chineseFreqMerging);
+            if (!enable) return tokens || [];
+        } catch { return tokens || []; }
+        if (!Array.isArray(tokens) || tokens.length === 0) return tokens || [];
+        const minCount = Math.max(1, this.plugin?.settings?.chineseFreqMergeMinCount || 100);
+        const isHanChar = (s: string) => typeof s === 'string' && s.length === 1 && /\p{Script=Han}/u.test(s);
+        const out: string[] = [];
+        for (let i = 0; i < tokens.length; i++) {
+            const a = tokens[i];
+            const b = tokens[i + 1];
+            if (isHanChar(a) && isHanChar(b)) {
+                const combined = a + b;
+                let merge = false;
+                const memo = this.ngramDecisionCache.get(combined);
+                if (typeof memo === 'boolean') {
+                    merge = memo;
+                } else {
+                    const freq = this.freqBigrams.get(combined) || 0;
+                    merge = (freq >= minCount) || (!!this.words && this.words.has(combined));
+                    this.ngramDecisionCache.set(combined, merge);
+                }
+                if (merge) {
+                    out.push(combined);
+                    i += 1;
+                    continue;
+                }
+            }
+            out.push(a);
+        }
+        return out;
+    }
+
+    /** Plug in OpenCC-like normalizer and switch mode (off|t2s|s2t) */
+    setOpenCCNormalizer(fn: ((text: string, mode: 't2s'|'s2t'|'off') => string)) { this.openCCNormalizer = fn; }
+    setOpenCCMode(mode: 't2s'|'s2t'|'off') { this.openCCMode = mode; }
 }

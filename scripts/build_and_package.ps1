@@ -5,16 +5,16 @@ PowerShell helper: build_and_package.ps1
 - Optionally installs the built plugin into a given vault path's `.obsidian/plugins/<id>` folder
 
 Usage:
-  # Create zip only
-  .\scripts\build_and_package.ps1
+    # Create zip only
+    .\scripts\build_and_package.ps1
 
-  # Create zip and install to a vault (replace with your vault root path)
-  .\scripts\build_and_package.ps1 -VaultPath "E:\Path\To\Your\Vault"
+    # Create zip and install to a vault (replace with your vault root path)
+    .\scripts\build_and_package.ps1 -VaultPath "E:\Path\To\Your\Vault"
 
 Notes:
 - Requires PowerShell 5+ (Compress-Archive is used).
 - The script looks for `manifest.json` in the repo root to read the plugin id.
-- Files included: manifest.json, main.js, styles.css, data.json, README.md, versions.json and the `dictionaries/` folder when present.
+- Files included: manifest.json, main.js, styles.css, versions.json (minimal runtime set).
 #>
 param(
     [string]$VaultPath = ""
@@ -22,9 +22,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Push-Location $scriptDir
+$rootDir = Resolve-Path (Join-Path $scriptDir '..')
+Push-Location $rootDir
 
-Write-Host "[build_and_package] Working directory: $scriptDir"
+Write-Host "[build_and_package] Working directory: $rootDir"
 
 # Run build
 Write-Host "[build_and_package] Running 'npm run build'..."
@@ -36,8 +37,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "[build_and_package] Build finished."
 
-# Read manifest.json
-$manifestPath = Join-Path $scriptDir 'manifest.json'
+# Read manifest.json from repo root
+$manifestPath = Join-Path $rootDir 'manifest.json'
 if (!(Test-Path $manifestPath)) {
     Write-Error "manifest.json not found in $scriptDir"
     Pop-Location
@@ -52,14 +53,14 @@ if (-not $pluginId) {
 }
 
 # Prepare temporary folder for packaging
-$tmp = Join-Path $scriptDir 'dist_tmp'
+$tmp = Join-Path $rootDir 'dist_tmp'
 if (Test-Path $tmp) { Remove-Item -Path $tmp -Recurse -Force }
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 # Files to include (only minimal runtime files)
-$toInclude = @('manifest.json','main.js','styles.css')
+$toInclude = @('manifest.json','main.js','styles.css','versions.json')
 foreach ($f in $toInclude) {
-    $src = Join-Path $scriptDir $f
+    $src = Join-Path $rootDir $f
     if (Test-Path $src) {
         Copy-Item -Path $src -Destination $tmp -Force
         Write-Host "[build_and_package] Included: $f"
@@ -68,7 +69,7 @@ foreach ($f in $toInclude) {
 # Do NOT include dictionaries in the package; dictionaries are fetched on-demand per language and cached locally.
 
 # Create dist and zip
-$dist = Join-Path $scriptDir 'dist'
+$dist = Join-Path $rootDir 'dist'
 if (Test-Path $dist) { Remove-Item -Path $dist -Recurse -Force }
 New-Item -ItemType Directory -Path $dist | Out-Null
 $zipName = "plugin-$pluginId.zip"

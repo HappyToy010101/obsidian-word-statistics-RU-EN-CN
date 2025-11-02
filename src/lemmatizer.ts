@@ -18,17 +18,22 @@ export class Lemmatizer {
         this.loaded = false;
         /** @type {string|null} Language of this lemmatizer */
         this.language = null;
-        /** @type {{advancedFallback?: boolean}} Options that influence lemmatization */
-        this.options = { advancedFallback: false };
+    /** @type {{advancedFallback?: boolean|"simple", allowParticipleToVerb?: boolean}} Options that influence lemmatization */
+    this.options = { advancedFallback: false, allowParticipleToVerb: false };
         /** @type {{[k:string]: number}} Diagnostics counters for rule application */
         this.counters = {
             dictionary: 0,
+            external: 0,
             ruVerb: 0,
             ruPartGer: 0,
             ruAdj: 0,
             ruNoun: 0,
             ruFallback: 0
         };
+        /** External lemmatization providers (async functions) */
+        this.externalProviders = [];
+        /** Timeout for each external provider call (ms) */
+        this.providerTimeoutMs = 200;
     }
 
     async loadDictionary(language) {
@@ -257,16 +262,17 @@ export class Lemmatizer {
                     if (wordform && lemma) {
                         const cleanWordform = wordform.trim().toLowerCase();
                         const cleanLemma = lemma.trim().toLowerCase();
-                        
+
                         if (cleanWordform.length > 0 && cleanLemma.length > 0) {
                             this.lemmas.set(cleanWordform, cleanLemma);
                             parsedEntries++;
                         }
                     } else if (wordform && !lemma) {
-                        // For Chinese - just add the word as is
+                        // Single token line: add as self-mapping (useful for small dictionaries or word-lists)
                         const cleanWordform = wordform.trim();
                         if (cleanWordform.length > 0) {
-                            this.lemmas.set(cleanWordform, cleanWordform);
+                            // preserve casefold for keys (lemmas stored lowercased elsewhere)
+                            this.lemmas.set(cleanWordform.toLowerCase(), cleanWordform.toLowerCase());
                             parsedEntries++;
                         }
                     }
@@ -299,13 +305,13 @@ export class Lemmatizer {
             return word ? word.toLowerCase() : '';
         }
         
-        const cleanWord = word.toLowerCase().trim();
-        
-        // Exact match
-        if (this.lemmas.has(cleanWord)) {
-            try { this.counters.dictionary++; } catch {}
-            return this.lemmas.get(cleanWord);
-        }
+        // Normalize input and try multiple dictionary variants first
+        const normalized = this.normalizeWord(word);
+        // Try dictionary variants (handles reflexive, hyphen, ё->е, etc.)
+        const dictFound = this.tryDictionaryVariants(normalized);
+        if (dictFound) return dictFound;
+
+        // Note: external providers are async; use lemmatizeAsync() if you want them considered
         
         // Language-specific simple fallback rules
         if (this.language === 'russian') {
@@ -314,18 +320,49 @@ export class Lemmatizer {
             // - advancedFallback === 'simple' -> simple suffix stripping
             // - otherwise (default/false/undefined) -> NO fallback, return original
             if (this.options?.advancedFallback === true) {
-                return this.russianAdvancedFallbackLemma(cleanWord);
+                return this.russianAdvancedFallbackLemma(normalized);
             }
             if (this.options?.advancedFallback === 'simple') {
                 try { this.counters.ruFallback++; } catch {}
-                return this.russianFallbackLemma(cleanWord);
+                return this.russianFallbackLemma(normalized);
             }
             // No fallback: keep as-is so users can review/add correct lemmas
-            return cleanWord;
+            return normalized;
         }
 
-        // If no lemma found, return original word in lowercase
-        return cleanWord;
+        // If no lemma found, return normalized word
+        return normalized;
+    }
+
+    /** Async version which tries external providers as well */
+    async lemmatizeAsync(word: string): Promise<string> {
+        if (!this.loaded || !word || typeof word !== 'string') {
+            return word ? word.toLowerCase() : '';
+        }
+        const normalized = this.normalizeWord(word);
+        const dictFound = this.tryDictionaryVariants(normalized);
+        if (dictFound) return dictFound;
+
+        // Try external providers (if any) before rule-based fallbacks
+        if (this.externalProviders && this.externalProviders.length > 0) {
+            const fromExt = await this.tryExternalProviders(normalized, this.language || '');
+            if (fromExt) {
+                try { this.counters.external++; } catch {}
+                return fromExt;
+            }
+        }
+
+        if (this.language === 'russian') {
+            if (this.options?.advancedFallback === true) {
+                return this.russianAdvancedFallbackLemma(normalized);
+            }
+            if (this.options?.advancedFallback === 'simple') {
+                try { this.counters.ruFallback++; } catch {}
+                return this.russianFallbackLemma(normalized);
+            }
+            return normalized;
+        }
+        return normalized;
     }
 
     getStats() {
@@ -334,6 +371,109 @@ export class Lemmatizer {
             entries: this.lemmas.size,
             counters: Object.assign({}, this.counters)
         };
+    }
+
+    /** Normalize input word: NFKC, lower, trim, collapse punctuation and normalize ё->е */
+    normalizeWord(w: string): string {
+        if (!w || typeof w !== 'string') return '';
+        // Unicode normalize, lowercase, trim
+        let s = w.normalize ? w.normalize('NFKC') : w;
+        s = s.toLowerCase().trim();
+        // Normalize ë to е for Russian
+        s = s.replace(/ё/g, 'е');
+        // Remove surrounding punctuation and quotes
+        s = s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+        // Remove common interior punctuation (except hyphen and apostrophe which can be meaningful)
+        s = s.replace(/["“”'«»()\[\]{}.,:;!?]+/g, '');
+        // Collapse multiple hyphens/underscores and trim them from ends
+        s = s.replace(/[_–—]+/g, '-');
+        s = s.replace(/-{2,}/g, '-');
+        s = s.replace(/^-+|-+$/g, '');
+        return s;
+    }
+
+    /** Try multiple dictionary lookup variants (reflexive removed, ë->е, hyphen parts, punctuation stripped) */
+    tryDictionaryVariants(cleanWord: string): string | null {
+        if (!cleanWord) return null;
+        const tried = new Set<string>();
+        const candidates: string[] = [];
+
+        // raw
+        candidates.push(cleanWord);
+        // remove reflexive marker
+        if (/(ся|сь)$/.test(cleanWord)) candidates.push(cleanWord.replace(/(ся|сь)$/, ''));
+        // variant with ё->е already applied by normalizeWord, but attempt original if user toggled
+        candidates.push(cleanWord.replace(/ё/g, 'е'));
+        // try removing internal hyphen (common in compound words)
+        if (cleanWord.includes('-')) {
+            candidates.push(cleanWord.replace(/-/g, ''));
+            // try each hyphen component individually (last component more likely lemma)
+            const parts = cleanWord.split('-').filter(Boolean);
+            for (const p of parts) candidates.push(p);
+        }
+        // strip trailing single-letter possessive/particles (e.g., 's' for english, not for ru) - keep minimal
+        candidates.push(cleanWord.replace(/[’'`]$/g, ''));
+
+        // small curated irregulars not necessarily present in dictionaries
+        const EXTRA: Record<string, string> = {
+            'дети': 'ребенок',
+            'детей': 'ребенок', 'детям': 'ребенок', 'детьми': 'ребенок', 'детях': 'ребенок',
+            'люди': 'человек',
+            'людей': 'человек', 'людям': 'человек', 'людьми': 'человек', 'людях': 'человек',
+            'друзья': 'друг', 'друзей': 'друг', 'друзьям': 'друг', 'друзьями': 'друг', 'друзьях': 'друг',
+            'листья': 'лист', 'листьев': 'лист', 'листьям': 'лист', 'листьями': 'лист', 'листьях': 'лист',
+            'деревья': 'дерево', 'деревьев': 'дерево', 'деревьям': 'дерево', 'деревьями': 'дерево', 'деревьях': 'дерево',
+            'ребята': 'ребенок',
+            'мальчики': 'мальчик',
+            'девочки': 'девочка'
+        };
+
+        for (const cand of candidates) {
+            if (!cand) continue;
+            const key = cand.toLowerCase();
+            if (tried.has(key)) continue;
+            tried.add(key);
+            if (this.lemmas.has(key)) {
+                try { this.counters.dictionary++; } catch {}
+                return this.lemmas.get(key);
+            }
+            if (this.language === 'russian' && EXTRA[key]) return EXTRA[key];
+        }
+        return null;
+    }
+
+    /** Register an external async provider: (word, language) => Promise<string|null>|string|null */
+    registerExternalProvider(provider: (word: string, language: string) => Promise<string|null>|string|null) {
+        if (!this.externalProviders) this.externalProviders = [];
+        this.externalProviders.push(provider);
+    }
+
+    clearExternalProviders() {
+        this.externalProviders = [];
+    }
+
+    /** Call external providers one by one with timeout, return first non-null result */
+    async tryExternalProviders(word: string, language: string): Promise<string|null> {
+        const providers = this.externalProviders || [];
+        for (const p of providers) {
+            try {
+                const result = await this.callWithTimeout(Promise.resolve(p(word, language)), this.providerTimeoutMs);
+                if (typeof result === 'string' && result.trim()) {
+                    return result.trim().toLowerCase();
+                }
+            } catch (_) {
+                // ignore provider errors/timeouts
+            }
+        }
+        return null;
+    }
+
+    /** Promise timeout helper */
+    callWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const id = setTimeout(() => reject(new Error('timeout')), Math.max(50, ms|0));
+            promise.then(v => { clearTimeout(id); resolve(v); }, err => { clearTimeout(id); reject(err); });
+        });
     }
 
     // Very lightweight Russian fallback lemmatizer using common suffix stripping
@@ -389,12 +529,19 @@ export class Lemmatizer {
             // 3pl → infinitive
             'идут': 'идти', 'едут': 'ехать', 'ведут': 'вести', 'могут': 'мочь', 'хотят': 'хотеть',
             'берут': 'брать', 'пишут': 'писать', 'режут': 'резать', 'ждут': 'ждать',
+            'бегут': 'бежать',
             // slang/common internet verbs often used
             'рофлят': 'рофлить',
             // frequent nouns/pronouns exceptions (nominative singular restoration)
             'дверей': 'дверь',
             'сыновьями': 'сын', 'сыновьям': 'сын', 'сыновей': 'сын', 'сыновьях': 'сын',
             'копеек': 'копейка',
+            // irregular plural → lemma (duplicates here for advanced path)
+            'дети': 'ребенок','детей': 'ребенок','детям': 'ребенок','детьми': 'ребенок','детях': 'ребенок',
+            'люди': 'человек','людей': 'человек','людям': 'человек','людьми': 'человек','людях': 'человек',
+            'друзья': 'друг','друзей': 'друг','друзьям': 'друг','друзьями': 'друг','друзьях': 'друг',
+            'листья': 'лист','листьев': 'лист','листьям': 'лист','листьями': 'лист','листьях': 'лист',
+            'деревья': 'дерево','деревьев': 'дерево','деревьям': 'дерево','деревьями': 'дерево','деревьях': 'дерево',
             // numerals (compact)
             'двух': 'два', 'двум': 'два', 'двумя': 'два',
             'трех': 'три', 'трёх': 'три', 'трем': 'три', 'трём': 'три', 'тремя': 'три',
@@ -470,7 +617,7 @@ export class Lemmatizer {
         }
 
         // Try participles and gerunds → verb infinitive
-        // Present active participles: -ущ-/-ющ- + adjective endings
+        // Gate participles by option allowParticipleToVerb to avoid converting adjectives into verbs by default
         const stripToVerbByPattern = (str: string): string | null => {
             const tryReturn = (stem: string) => stem.length >= 2 ? (hadReflexive ? stem + 'ться' : stem + 'ть') : null;
             // -вши / -в (прочитавши → прочитать, прочитав → прочитать)
@@ -484,17 +631,20 @@ export class Lemmatizer {
                 const res = tryReturn(stem);
                 if (res) return res;
             }
-            // -ущ-/-ющ- participles (читающий → читать)
-            if (/(у|ю)щ[а-я]*$/.test(str)) {
-                const stem = str.replace(/(у|ю)щ[а-я]*$/, '');
-                const res = tryReturn(stem);
-                if (res) return res;
-            }
-            // Passive participles: -енн-/-ённ-/-анн-/-янн- + endings
-            if (/(енн|ённ|анн|янн)[а-я]*$/.test(str)) {
-                const stem = str.replace(/(енн|ённ|анн|янн)[а-я]*$/, '');
-                const res = tryReturn(stem);
-                if (res) return res;
+            // Participles (adjectival) → verb only when explicitly allowed to avoid mis-converting adjectives
+            if (this.options?.allowParticipleToVerb) {
+                // -ущ-/-ющ- participles (читающий → читать)
+                if (/(у|ю)щ[а-я]*$/.test(str)) {
+                    const stem = str.replace(/(у|ю)щ[а-я]*$/, '');
+                    const res = tryReturn(stem);
+                    if (res) return res;
+                }
+                // Passive participles: -енн-/-ённ-/-анн-/-янн- + endings
+                if (/(енн|ённ|анн|янн)[а-я]*$/.test(str)) {
+                    const stem = str.replace(/(енн|ённ|анн|янн)[а-я]*$/, '');
+                    const res = tryReturn(stem);
+                    if (res) return res;
+                }
             }
             return null;
         };
@@ -609,7 +759,7 @@ export class Lemmatizer {
         }
 
         // Keep adverbs ending in -о/-е as-is when no better rule matched (e.g., "прямо", "тихо")
-        if ((/[аеёиоуыэюя]о$/.test(s) || /[аеёиоуыэюя]е$/.test(s)) && s.length > 3) {
+        if ((/о$/.test(s) || /е$/.test(s)) && s.length > 3) {
             return ret(s, 'ruFallback');
         }
 

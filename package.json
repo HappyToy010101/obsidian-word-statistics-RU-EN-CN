@@ -1,7 +1,7 @@
 {
   "$schema": "./.vscode/schemas/package.schema.json",
   "name": "word-statistics-ru-en-cn",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Dev tooling for Obsidian plugin: Word statistics RU EN CN",
   "license": "MIT",
@@ -21,12 +21,18 @@
     "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch",
   "build": "npm run typecheck && esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js --minify",
     "build:watch": "esbuild main.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=main.js --watch --sourcemap",
+    "package:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_and_package.ps1",
     "dict:optimize": "node scripts/optimize-dictionaries.js",
-    "dict:stats": "node scripts/optimize-dictionaries.js --stats"
+    "dict:stats": "node scripts/optimize-dictionaries.js --stats",
+    "dict:irregulars": "ts-node scripts/extract-irregulars.ts",
+    "dict:custom:generate": "ts-node scripts/generate-custom-lemmas.ts",
+    "test": "ts-node scripts/lemma-tests.ts",
+    "test:cn": "ts-node scripts/chinese-tests.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "typescript": "^5.6.3",
-    "esbuild": "^0.21.5"
+    "esbuild": "^0.21.5",
+    "ts-node": "^10.9.2"
   }
 }

@@ -548,7 +548,7 @@ var WordStatisticsView = class extends import_obsidian.ItemView {
         const languages = [
             { value: "russian", name: "RU Русский", flag: "RU" },
             { value: "english", name: "EN English", flag: "EN" },
-            { value: "chinese", name: "ZH 中文", flag: "ZH" }
+            { value: "chinese", name: "CN 中文", flag: "CN" }
         ];
 
         languages.forEach((lang) => {
@@ -2360,7 +2360,7 @@ var WordStatsSettingTab = class extends import_obsidian.PluginSettingTab {
             .addDropdown((dropdown) => dropdown
                 .addOption("russian", "RU Русский")
                 .addOption("english", "EN English")
-                .addOption("chinese", "ZH 中文")
+                .addOption("chinese", "CN 中文")
                 .setValue(this.plugin.settings.language)
                 .onChange(async (value) => {
                     this.plugin.settings.language = value;

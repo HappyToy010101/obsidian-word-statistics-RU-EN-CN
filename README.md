@@ -17,7 +17,7 @@ Analyze words across Russian, English, and Chinese notes with smart lemmatizatio
 ### Features
 
 - 📊 Word frequency analysis for Russian, English, and Chinese
-- 🧠 Lemmatization (RU/EN) and segmentation (ZH)
+- 🧠 Lemmatization (RU/EN) and segmentation (CN)
 - ✂️ Optional preposition/particle exclusion per language
 - 🇨🇳 Chinese: improved segmentation with custom phrases + manual segmentation modal
 - 🇷🇺 Russian: advanced fallback rules for unknown words (optional)
@@ -26,7 +26,7 @@ Analyze words across Russian, English, and Chinese notes with smart lemmatizatio
 - ⚡ Caching for faster reloads, batched processing to keep UI responsive
 - 🪄 Lazy‑load dictionaries only for the active language
 - 🧭 First‑run auto‑detect of default language
-- 🌐 Fully localized UI (RU/EN/ZH)
+- 🌐 Fully localized UI (RU/EN/CN)
 - 🧪 Built‑in strict test with reference poem
 - 💾 Export to CSV/JSON (filtered) and Export All
 
@@ -47,7 +47,7 @@ Notes: Minimum Obsidian 0.15. BRAT can auto‑update. For manual updates, replac
 ### Usage
 
 1. Open 📊 Word Statistics view from the ribbon.
-2. Choose language (RU/EN/ZH), set “Exclude top words”.
+2. Choose language (RU/EN/CN), set “Exclude top words”.
 3. Click “Refresh Statistics”. Switch table/chart anytime.
 4. Export CSV/JSON; files are saved to the vault root.
 
@@ -91,7 +91,7 @@ MIT
 ### Возможности
 
 - 📊 Частотный анализ слов для русского, английского и китайского
-- 🧠 Лемматизация (RU/EN) и сегментация (ZH)
+- 🧠 Лемматизация (RU/EN) и сегментация (CN)
 - ✂️ Опциональное исключение предлогов/частиц
 - 🇨🇳 Китайский: улучшенная сегментация + ручная правка + пользовательские фразы
 - 🇷🇺 Русский: расширенные правила fallback для неизвестных слов (опция)
@@ -100,7 +100,7 @@ MIT
 - ⚡ Кэш, пакетная обработка — интерфейс не «висит»
 - 🪄 Ленивая загрузка словарей (только для активного языка)
 - 🧭 Автоопределение языка при первом запуске
-- 🌐 Полная локализация интерфейса (RU/EN/ZH)
+- 🌐 Полная локализация интерфейса (RU/EN/CN)
 - 🧪 Встроенный строгий тест на эталонном стихотворении
 - 💾 Экспорт CSV/JSON (фильтр) и «Экспорт всего»
 
@@ -121,7 +121,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; irm
 ### Как пользоваться
 
 1. Откройте вид 📊 «Статистика слов» (значок на панели).
-2. Выберите язык (RU/EN/ZH), настройте «Исключить топ слов».
+2. Выберите язык (RU/EN/CN), настройте «Исключить топ слов».
 3. Нажмите «Обновить статистику». Переключайте таблицу/график в любой момент.
 4. Экспортируйте CSV/JSON; файлы сохраняются в корень вашего vault.
 
@@ -174,7 +174,7 @@ MIT
 - ⚡ 缓存与分批处理，保证界面流畅
 - 🪄 仅按需加载当前语言的字典
 - 🧭 首次运行自动检测默认语言
-- 🌐 全面本地化（RU/EN/ZH）
+- 🌐 全面本地化（RU/EN/CN）
 - 🧪 内置严格测试（参考诗歌）
 - 💾 导出 CSV/JSON（过滤）与“导出全部”
 
@@ -195,7 +195,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; irm
 ### 使用方法
 
 1. 点击侧栏📊图标打开统计视图。
-2. 选择语言（RU/EN/ZH），调整“排除常见词”。
+2. 选择语言（RU/EN/CN），调整“排除常见词”。
 3. 点击“刷新统计”。可随时在表格/图表之间切换。
 4. 导出 CSV/JSON；文件保存到库根目录。
 

@@ -139,7 +139,7 @@ function optimizeChinese(text) {
 
   reports.push(`RU: unique=${ru.stats.unique} dup=${ru.stats.dup} invalid=${ru.stats.invalid}`);
   reports.push(`EN: unique=${en.stats.unique} dup=${en.stats.dup} invalid=${en.stats.invalid}`);
-  reports.push(`ZH: unique=${zh.stats.unique} dup=${zh.stats.dup}`);
+  reports.push(`CN: unique=${zh.stats.unique} dup=${zh.stats.dup}`);
 
   if (ONLY_STATS) {
     console.log('[Dictionary stats]');
